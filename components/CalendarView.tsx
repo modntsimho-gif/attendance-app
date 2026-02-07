@@ -1,42 +1,74 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameMonth, isToday, isSameDay, addDays, isSaturday, isSunday } from "date-fns";
-import { UserCircle } from "lucide-react";
+import { 
+  format, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, 
+  isSameMonth, isToday, isSameDay, isSaturday, isSunday, isWithinInterval, parseISO 
+} from "date-fns";
+import { UserCircle, Loader2, ChevronLeft, ChevronRight, Calendar as CalendarIcon } from "lucide-react";
+import { getCalendarEvents } from "@/app/actions/calendar"; 
 
-// 1. 내 데이터
-const myLeaves = [
-  { date: new Date(), type: "연차", status: "pending" },
-  { date: addDays(new Date(), 3), type: "오전반차", status: "approved" },
-  { date: addDays(new Date(), 15), type: "연차", status: "approved" },
-];
+interface CalendarViewProps {
+  targetUser?: { 
+    id: string; 
+    name: string; 
+    department?: string;
+    role?: string;
+    position?: string;
+    avatar_url?: string;
+  } | null;
+} 
 
-// 2. 다른 사람 데이터 (가짜)
-const otherLeavesMap: any = {
-  kim: [ // 김토스
-    { date: addDays(new Date(), 1), type: "병가", status: "approved" },
-    { date: addDays(new Date(), 2), type: "병가", status: "approved" },
-    { date: addDays(new Date(), 20), type: "연차", status: "pending" },
-  ],
-  lee: [ // 이디자
-    { date: addDays(new Date(), -2), type: "여름휴가", status: "approved" },
-    { date: addDays(new Date(), -1), type: "여름휴가", status: "approved" },
-    { date: new Date(), type: "여름휴가", status: "approved" }, // 오늘 휴가 중
-  ],
-  park: [] // 박백엔 (휴가 없음)
+type LeaveEvent = {
+  id: string;
+  leave_type: string;
+  start_date: string;
+  end_date: string;
+  status: string;
 };
 
-// Props 추가
-interface CalendarViewProps {
-  targetUser?: { id: string; name: string; role: string } | null;
-}
+type OvertimeEvent = {
+  id: string;
+  title: string;
+  work_date: string;
+  total_hours: number;
+  status: string;
+};
+
+// [NEW] 공휴일 타입 정의
+type HolidayEvent = {
+  id: number;
+  date: string;
+  title: string;
+};
 
 export default function CalendarView({ targetUser }: CalendarViewProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
+  
+  const [leaves, setLeaves] = useState<LeaveEvent[]>([]);
+  const [overtimes, setOvertimes] = useState<OvertimeEvent[]>([]);
+  const [holidays, setHolidays] = useState<HolidayEvent[]>([]); // [NEW] 상태 추가
+  
+  const [loading, setLoading] = useState(false);
 
-  // targetUser가 바뀌면 보여줄 데이터 선택
-  const currentLeaves = targetUser ? (otherLeavesMap[targetUser.id] || []) : myLeaves;
   const isMyCalendar = !targetUser;
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const data = await getCalendarEvents(targetUser?.id, currentDate);
+        setLeaves(data.leaves);
+        setOvertimes(data.overtimes);
+        setHolidays(data.holidays); // [NEW] 데이터 저장
+      } catch (error) {
+        console.error("일정 불러오기 실패:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, [currentDate, targetUser]);
 
   const monthStart = startOfMonth(currentDate);
   const monthEnd = endOfMonth(monthStart);
@@ -44,109 +76,158 @@ export default function CalendarView({ targetUser }: CalendarViewProps) {
   const endDate = endOfWeek(monthEnd);
   const calendarDays = eachDayOfInterval({ start: startDate, end: endDate });
 
-  const getDateColor = (day: Date, isCurrentMonth: boolean) => {
-    if (!isCurrentMonth) return "text-gray-300";
-    if (isSunday(day)) return "text-red-500";
-    if (isSaturday(day)) return "text-blue-500";
-    return "text-gray-700";
-  };
-
   return (
-    <div className="flex flex-col w-full bg-white relative">
+    <div className="flex flex-col w-full bg-white rounded-xl shadow-lg border-t-4 border-t-blue-600 border-x border-b border-gray-200 overflow-hidden relative min-h-[600px]">
       
-      {/* 타인 캘린더 조회 시 상단 배너 표시 */}
-      {!isMyCalendar && (
-        <div className="absolute -top-14 left-0 right-0 bg-gray-800 text-white px-4 py-2 rounded-lg flex justify-between items-center shadow-md z-20 animate-in fade-in slide-in-from-bottom-2">
-          <div className="flex items-center gap-2">
-            <UserCircle className="w-5 h-5 text-yellow-400" />
-            <span className="font-bold">{targetUser.name}</span>
-            <span className="text-sm text-gray-300">님의 일정을 보고 있습니다.</span>
-          </div>
-          <div className="text-xs bg-gray-700 px-2 py-1 rounded text-gray-300">
-            읽기 전용 모드
+      {loading && (
+        <div className="absolute inset-0 bg-white/60 z-30 flex items-center justify-center backdrop-blur-[1px]">
+          <div className="bg-white p-4 rounded-full shadow-xl">
+            <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
           </div>
         </div>
       )}
 
-      {/* 헤더 */}
-      <div className="flex justify-between items-center mb-4 px-1 mt-2">
-        <h2 className={`text-xl font-bold ${isMyCalendar ? 'text-gray-900' : 'text-blue-700'}`}>
-          {format(currentDate, "yyyy. MM")}
-        </h2>
-        <div className="flex items-center bg-gray-50 rounded-lg p-0.5 border border-gray-100">
+      {!isMyCalendar && targetUser && (
+        <div className="bg-gray-900 text-white px-6 py-3 flex justify-between items-center shadow-inner">
+          <div className="flex items-center gap-3">
+            <div className="p-1.5 bg-gray-700 rounded-full">
+              <UserCircle className="w-5 h-5 text-yellow-400" />
+            </div>
+            <div>
+              <span className="font-bold text-lg">{targetUser.name}</span>
+              <span className="text-gray-400 text-sm ml-2">님의 일정을 보고 있습니다</span>
+            </div>
+          </div>
+          <span className="text-xs font-bold bg-gray-700 px-3 py-1 rounded-full border border-gray-600">
+            READ ONLY
+          </span>
+        </div>
+      )}
+
+      <div className="flex justify-between items-center p-6 border-b border-gray-100 bg-white">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
+            <CalendarIcon className="w-6 h-6" />
+          </div>
+          <h2 className="text-2xl font-extrabold text-gray-800 tracking-tight">
+            {format(currentDate, "yyyy년 M월")}
+          </h2>
+        </div>
+        
+        <div className="flex items-center bg-gray-100 rounded-lg p-1 gap-1">
           <button 
             onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() - 1)))}
-            className="w-7 h-7 flex items-center justify-center hover:bg-white hover:shadow-sm rounded transition-all text-gray-500 text-xs"
+            className="w-9 h-9 flex items-center justify-center hover:bg-white hover:shadow-sm rounded-md transition-all text-gray-600"
           >
-            ◀
+            <ChevronLeft className="w-5 h-5" />
           </button>
           <button 
             onClick={() => setCurrentDate(new Date())}
-            className="px-3 h-7 flex items-center justify-center hover:bg-white hover:shadow-sm rounded transition-all text-xs font-bold text-gray-600 mx-0.5"
+            className="px-4 h-9 flex items-center justify-center hover:bg-white hover:shadow-sm rounded-md transition-all text-sm font-bold text-gray-700"
           >
             오늘
           </button>
           <button 
             onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() + 1)))}
-            className="w-7 h-7 flex items-center justify-center hover:bg-white hover:shadow-sm rounded transition-all text-gray-500 text-xs"
+            className="w-9 h-9 flex items-center justify-center hover:bg-white hover:shadow-sm rounded-md transition-all text-gray-600"
           >
-            ▶
+            <ChevronRight className="w-5 h-5" />
           </button>
         </div>
       </div>
 
-      {/* 요일 헤더 */}
-      <div className="grid grid-cols-7 text-center mb-1 bg-gray-50/50 rounded-t-lg border-x border-t border-gray-200 py-1.5">
+      <div className="grid grid-cols-7 text-center bg-gray-50 border-b border-gray-200">
         {['일', '월', '화', '수', '목', '금', '토'].map((day, i) => (
-          <div key={day} className={`text-xs font-bold ${i === 0 ? 'text-red-500' : i === 6 ? 'text-blue-500' : 'text-gray-400'}`}>
+          <div key={day} className={`py-3 text-sm font-bold ${i === 0 ? 'text-red-500' : i === 6 ? 'text-blue-500' : 'text-gray-500'}`}>
             {day}
           </div>
         ))}
       </div>
 
-      {/* 날짜 그리드 */}
-      <div className={`grid grid-cols-7 auto-rows-fr border-l border-t border-gray-200 rounded-b-lg overflow-hidden ${!isMyCalendar ? 'border-blue-100' : ''}`}>
+      <div className="grid grid-cols-7 auto-rows-fr bg-gray-200 gap-px flex-1">
         {calendarDays.map((day: Date, idx: number) => {
           const isCurrentMonth = isSameMonth(day, monthStart);
-          const dayLeaves = currentLeaves.filter((leave: any) => isSameDay(leave.date, day));
+          const today = isToday(day);
+          
+          // [NEW] 공휴일 체크
+          const holiday = holidays.find(h => h.date === format(day, "yyyy-MM-dd"));
+          const isHoliday = !!holiday;
+
+          // 날짜 색상 결정 (공휴일 or 일요일 = 빨강, 토요일 = 파랑)
+          const isRedDay = isSunday(day) || isHoliday;
+          const isBlueDay = isSaturday(day) && !isHoliday; // 공휴일이면 토요일이어도 빨강
+
+          const dayLeaves = leaves.filter(leave => 
+            isWithinInterval(day, {
+              start: parseISO(leave.start_date),
+              end: parseISO(leave.end_date)
+            })
+          );
+          const dayOvertimes = overtimes.filter(ot => 
+            isSameDay(parseISO(ot.work_date), day)
+          );
 
           return (
             <div
               key={idx}
               className={`
-                min-h-[85px] p-1.5 border-b border-r border-gray-200 flex flex-col items-start justify-start relative transition-colors
-                ${!isCurrentMonth ? 'bg-gray-50/30' : 'bg-white'}
-                ${isToday(day) ? 'bg-blue-50/20' : ''}
-                hover:bg-gray-50
+                min-h-[140px] p-2 flex flex-col items-start relative group transition-all
+                ${!isCurrentMonth ? 'bg-gray-50/50 text-gray-300' : 'bg-white'}
+                ${(isRedDay || isBlueDay) && isCurrentMonth ? 'bg-gray-50/30' : ''}
+                ${today ? 'bg-blue-50/30 ring-2 ring-inset ring-blue-500 z-10' : 'hover:bg-gray-50'}
               `}
             >
-              {isToday(day) && (
-                <span className="absolute top-1.5 left-1.5 w-6 h-6 bg-blue-600 rounded-full -z-0 opacity-10"></span>
-              )}
+              <div className="w-full flex justify-between items-start mb-1">
+                {/* 날짜 숫자 */}
+                <span className={`
+                  text-lg font-bold w-8 h-8 flex items-center justify-center rounded-full
+                  ${!isCurrentMonth ? 'text-gray-300' : ''}
+                  ${isRedDay && isCurrentMonth ? 'text-red-500' : ''}
+                  ${isBlueDay && isCurrentMonth ? 'text-blue-500' : ''}
+                  ${!isRedDay && !isBlueDay && isCurrentMonth ? 'text-gray-700' : ''}
+                  ${today ? 'bg-blue-600 text-white shadow-md scale-110 !text-white' : ''}
+                `}>
+                  {format(day, 'd')}
+                </span>
 
-              <span className={`
-                text-sm font-semibold z-10 mb-1 px-1
-                ${getDateColor(day, isCurrentMonth)}
-                ${isToday(day) ? '!text-blue-700' : ''}
-              `}>
-                {format(day, 'd')}
-              </span>
+                {/* [NEW] 공휴일 이름 표시 */}
+                {holiday && isCurrentMonth && (
+                  <span className="text-[10px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded border border-red-100 truncate max-w-[60px]">
+                    {holiday.title}
+                  </span>
+                )}
+              </div>
 
-              <div className="w-full space-y-0.5 mt-0.5">
-                {dayLeaves.map((leave: any, i: number) => (
+              {/* 일정 리스트 */}
+              <div className="w-full space-y-1 overflow-y-auto max-h-[100px] custom-scrollbar mt-1">
+                
+                {dayLeaves.map((leave) => (
                   <div 
-                    key={i}
+                    key={leave.id}
                     className={`
-                      text-[10px] px-1.5 py-0.5 rounded w-full truncate font-medium border
+                      px-2 py-1 rounded-md text-xs font-bold shadow-sm border truncate flex items-center gap-1
                       ${leave.status === 'approved' 
-                        ? 'bg-blue-50 text-blue-600 border-blue-100' 
-                        : 'bg-orange-50 text-orange-600 border-orange-100 border-dashed'
+                        ? 'bg-blue-100 text-blue-700 border-blue-200' 
+                        : 'bg-orange-50 text-orange-600 border-orange-200 border-dashed'
                       }
-                      ${!isMyCalendar ? '!bg-gray-100 !text-gray-600 !border-gray-200' : ''} 
+                      ${!isMyCalendar ? 'opacity-90 grayscale-[0.3]' : ''}
                     `}
                   >
-                    {/* 내 캘린더가 아니면 회색으로 표시 (읽기 전용 느낌) */}
-                    {leave.status === 'pending' && isMyCalendar && '⏳ '}{leave.type}
+                    {leave.status === 'pending' && <div className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />}
+                    {leave.leave_type}
+                  </div>
+                ))}
+
+                {dayOvertimes.map((ot) => (
+                  <div 
+                    key={ot.id}
+                    className={`
+                      px-2 py-1 rounded-md text-xs font-bold shadow-sm border truncate flex items-center gap-1
+                      bg-purple-100 text-purple-700 border-purple-200
+                      ${!isMyCalendar ? 'opacity-90 grayscale-[0.3]' : ''}
+                    `}
+                  >
+                    {ot.title || "초과근무"} ({ot.total_hours}h)
                   </div>
                 ))}
               </div>

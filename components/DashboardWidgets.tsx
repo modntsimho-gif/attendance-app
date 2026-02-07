@@ -1,131 +1,216 @@
 "use client";
 
-import { User, Home, Plane, CalendarHeart, Megaphone, Clock, Briefcase } from "lucide-react";
+import { useEffect, useState } from "react";
+import { User, Home, Plane, CalendarHeart, Loader2, Palmtree, Briefcase } from "lucide-react";
+import { getDashboardData } from "@/app/actions/dashboard";
+import { format, parseISO, differenceInCalendarDays } from "date-fns";
 
 export default function DashboardWidgets() {
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<{
+    todayLeaves: any[];
+    myNextLeave: any;
+    upcomingEvents: any[];
+  }>({ todayLeaves: [], myNextLeave: null, upcomingEvents: [] });
+
+  useEffect(() => {
+    async function fetchData() {
+      const res = await getDashboardData();
+      
+      // 공휴일과 직원 휴가를 합쳐서 날짜순 정렬
+      const mergedEvents = [
+        ...res.holidays.map((h: any) => ({ ...h, type: 'holiday' })),
+        ...res.upcomingLeaves.map((l: any) => ({ ...l, type: 'leave' }))
+      ].sort((a, b) => {
+        const dateA = a.date || a.start_date;
+        const dateB = b.date || b.start_date;
+        return dateA.localeCompare(dateB);
+      }).slice(0, 10); // 데이터는 넉넉히 가져오되 스크롤로 보여줌
+
+      setData({
+        todayLeaves: res.todayLeaves,
+        myNextLeave: res.myNextLeave,
+        upcomingEvents: mergedEvents
+      });
+      setLoading(false);
+    }
+    fetchData();
+  }, []);
+
+  // 휴가 타입에 따른 스타일 및 아이콘 반환 함수
+  const getLeaveStyle = (type: string) => {
+    if (type.includes("재택")) {
+      return { 
+        bg: "bg-green-50", border: "border-green-100", 
+        iconBg: "bg-green-200", iconText: "text-green-700", 
+        text: "text-green-600", badge: "text-green-700",
+        Icon: Home, label: "WFH" 
+      };
+    } else if (type.includes("외근") || type.includes("출장")) {
+      return { 
+        bg: "bg-blue-50", border: "border-blue-100", 
+        iconBg: "bg-blue-200", iconText: "text-blue-700", 
+        text: "text-blue-600", badge: "text-blue-700",
+        Icon: Plane, label: "Trip" 
+      };
+    } else {
+      // 기본 연차/반차 등
+      return { 
+        bg: "bg-red-50", border: "border-red-100", 
+        iconBg: "bg-red-200", iconText: "text-red-700", 
+        text: "text-red-500", badge: "text-red-600",
+        Icon: Palmtree, label: "OFF" 
+      };
+    }
+  };
+
+  // D-Day 계산
+  const getDday = (dateStr: string) => {
+    const diff = differenceInCalendarDays(parseISO(dateStr), new Date());
+    return diff === 0 ? "D-Day" : `D-${diff}`;
+  };
+
+  if (loading) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6 min-h-[300px]">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex items-center justify-center h-[340px]">
+          <Loader2 className="w-8 h-8 animate-spin text-gray-300" />
+        </div>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex items-center justify-center h-[340px]">
+          <Loader2 className="w-8 h-8 animate-spin text-gray-300" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
       
-      {/* 위젯 1: 오늘 우리 팀 현황 */}
-      <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col">
-        <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
-          <User className="w-5 h-5 text-blue-600" />
-          오늘 우리 팀 현황
-        </h3>
+      {/* 위젯 1: 오늘의 휴가자 */}
+      <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col h-[340px]">
+        <div className="flex justify-between items-start mb-4 shrink-0">
+          <h3 className="font-bold text-gray-800 flex items-center gap-2">
+            <Palmtree className="w-5 h-5 text-green-600" />
+            오늘의 휴가자
+          </h3>
+          <span className="bg-green-100 text-green-700 text-xs font-bold px-2 py-1 rounded-full">
+            {data.todayLeaves.length}명
+          </span>
+        </div>
         
-        <div className="flex-1 space-y-3">
-          {/* 휴가자 */}
-          <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-100">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-red-200 flex items-center justify-center text-red-700 font-bold text-xs">
-                김
-              </div>
-              <div>
-                <div className="text-sm font-bold text-gray-800">김토스</div>
-                <div className="text-xs text-red-500 font-medium">연차 휴가 중</div>
-              </div>
+        {/* min-h-0 추가: 내부 스크롤이 부모 높이를 넘지 않도록 제한 */}
+        <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar space-y-3 min-h-0">
+          {data.todayLeaves.length > 0 ? (
+            data.todayLeaves.map((leave: any) => {
+              const style = getLeaveStyle(leave.leave_type);
+              const StyleIcon = style.Icon;
+              return (
+                <div key={leave.id} className={`flex items-center justify-between p-3 rounded-lg border ${style.bg} ${style.border}`}>
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-full ${style.iconBg} flex items-center justify-center ${style.iconText} font-bold text-xs`}>
+                      {leave.profiles.name[0]}
+                    </div>
+                    <div>
+                      <div className="text-sm font-bold text-gray-800">
+                        {leave.profiles.name} <span className="text-xs font-normal text-gray-500">{leave.profiles.position}</span>
+                      </div>
+                      <div className={`text-xs ${style.text} font-medium`}>
+                        {leave.leave_type}
+                      </div>
+                    </div>
+                  </div>
+                  <div className={`flex items-center gap-1 text-xs bg-white px-2 py-1 rounded ${style.badge} font-bold shadow-sm`}>
+                    <StyleIcon className="w-3 h-3" /> {style.label}
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <div className="h-full flex flex-col items-center justify-center text-gray-400 gap-2">
+              <Palmtree className="w-8 h-8 opacity-20" />
+              <span className="text-sm">오늘 휴가자가 없습니다.</span>
             </div>
-            <span className="text-xs bg-white px-2 py-1 rounded text-red-600 font-bold shadow-sm">OFF</span>
-          </div>
-
-          {/* 재택근무 */}
-          <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-100">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-green-200 flex items-center justify-center text-green-700 font-bold text-xs">
-                이
-              </div>
-              <div>
-                <div className="text-sm font-bold text-gray-800">이디자</div>
-                <div className="text-xs text-green-600 font-medium">재택 근무 (10:00~19:00)</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-1 text-xs bg-white px-2 py-1 rounded text-green-700 font-bold shadow-sm">
-              <Home className="w-3 h-3" /> WFH
-            </div>
-          </div>
-
-          {/* 외근 */}
-          <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-100">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-blue-200 flex items-center justify-center text-blue-700 font-bold text-xs">
-                박
-              </div>
-              <div>
-                <div className="text-sm font-bold text-gray-800">박백엔</div>
-                <div className="text-xs text-blue-600 font-medium">외근 (클라이언트 미팅)</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-1 text-xs bg-white px-2 py-1 rounded text-blue-700 font-bold shadow-sm">
-              <Plane className="w-3 h-3" /> Trip
-            </div>
-          </div>
+          )}
         </div>
       </div>
 
       {/* 위젯 2: 주요 일정 & D-Day */}
-      <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col">
-        <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
+      <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col h-[340px]">
+        <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2 shrink-0">
           <CalendarHeart className="w-5 h-5 text-pink-500" />
           다가오는 주요 일정
         </h3>
 
-        <div className="flex-1 space-y-0">
-          {/* D-Day 카드 */}
-          <div className="mb-4 bg-gradient-to-r from-purple-500 to-indigo-600 rounded-lg p-4 text-white shadow-md relative overflow-hidden group">
+        {/* min-h-0 추가: Flex 자식이 부모 높이를 뚫고 나가는 현상 방지 */}
+        <div className="flex-1 flex flex-col min-h-0">
+          
+          {/* D-Day 카드 (고정 높이) */}
+          <div className="mb-4 bg-gradient-to-r from-purple-500 to-indigo-600 rounded-lg p-4 text-white shadow-md relative overflow-hidden group shrink-0">
             <div className="absolute right-0 top-0 opacity-10 transform translate-x-2 -translate-y-2 group-hover:scale-110 transition-transform">
               <Plane className="w-24 h-24" />
             </div>
             <div className="relative z-10">
-              <div className="text-xs font-medium text-purple-100 mb-1">내 다음 휴가까지</div>
-              <div className="flex items-end gap-2">
-                <span className="text-3xl font-bold">D-12</span>
-                <span className="text-sm text-purple-200 mb-1">(2월 28일)</span>
-              </div>
+              {data.myNextLeave ? (
+                <>
+                  <div className="text-xs font-medium text-purple-100 mb-1">내 다음 휴가 ({data.myNextLeave.leave_type})</div>
+                  <div className="flex items-end gap-2">
+                    <span className="text-3xl font-bold">{getDday(data.myNextLeave.start_date)}</span>
+                    <span className="text-sm text-purple-200 mb-1">
+                      ({format(parseISO(data.myNextLeave.start_date), "M월 d일")})
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-xs font-medium text-purple-100 mb-1">예정된 휴가가 없습니다</div>
+                  <div className="flex items-end gap-2">
+                    <span className="text-xl font-bold">화이팅! 💪</span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
-          {/* 리스트 */}
-          <div className="divide-y divide-gray-100">
-            {/* 1. 공휴일 */}
-            <div className="py-3 flex items-center gap-3">
-              <div className="w-10 text-center">
-                <div className="text-[10px] text-gray-400 font-bold">MAR</div>
-                <div className="text-lg font-bold text-red-500 leading-none">01</div>
-              </div>
-              <div className="flex-1">
-                <div className="text-sm font-bold text-gray-700">삼일절 (공휴일) 🇰🇷</div>
-                <div className="text-xs text-gray-400">법정 공휴일 휴무</div>
-              </div>
-              <div className="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded">D-13</div>
-            </div>
+          {/* 리스트 (남은 공간 차지 + 스크롤) */}
+          <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar divide-y divide-gray-100">
+            {data.upcomingEvents.length > 0 ? (
+              data.upcomingEvents.map((event: any, idx: number) => {
+                const dateStr = event.date || event.start_date;
+                const isHoliday = event.type === 'holiday';
+                const dDay = getDday(dateStr);
 
-            {/* 2. 프로젝트 마감 (급여일 대체) */}
-            <div className="py-3 flex items-center gap-3">
-              <div className="w-10 text-center">
-                <div className="text-[10px] text-gray-400 font-bold">MAR</div>
-                <div className="text-lg font-bold text-gray-800 leading-none">10</div>
+                return (
+                  <div key={idx} className="py-3 flex items-center gap-3">
+                    <div className="w-10 text-center shrink-0">
+                      <div className="text-[10px] text-gray-400 font-bold uppercase">
+                        {format(parseISO(dateStr), "MMM")}
+                      </div>
+                      <div className={`text-lg font-bold leading-none ${isHoliday ? 'text-red-500' : 'text-gray-800'}`}>
+                        {format(parseISO(dateStr), "dd")}
+                      </div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className={`text-sm font-bold truncate ${isHoliday ? 'text-gray-700' : 'text-gray-800'}`}>
+                        {event.title || `${event.profiles.name}님 ${event.leave_type}`}
+                      </div>
+                      <div className="text-xs text-gray-400 truncate">
+                        {isHoliday ? "공휴일" : `${event.profiles.department} • ${event.leave_type}`}
+                      </div>
+                    </div>
+                    <div className={`text-xs font-bold px-2 py-1 rounded shrink-0 ${
+                      isHoliday ? 'text-red-500 bg-red-50' : 'text-gray-500 bg-gray-100'
+                    }`}>
+                      {dDay}
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="h-full flex items-center justify-center text-gray-400 text-sm">
+                예정된 일정이 없습니다.
               </div>
-              <div className="flex-1">
-                <div className="text-sm font-bold text-gray-700">Q1 프로젝트 마감</div>
-                <div className="text-xs text-gray-400">최종 배포 및 회고</div>
-              </div>
-              <div className="text-xs font-bold text-orange-600 bg-orange-50 px-2 py-1 rounded">D-22</div>
-            </div>
-
-            {/* 3. 타운홀 미팅 */}
-            <div className="py-3 flex items-center gap-3">
-              <div className="w-10 text-center">
-                <div className="text-[10px] text-gray-400 font-bold">MAR</div>
-                <div className="text-lg font-bold text-gray-800 leading-none">15</div>
-              </div>
-              <div className="flex-1">
-                <div className="text-sm font-bold text-gray-700">전사 타운홀 미팅</div>
-                <div className="text-xs text-gray-400">대회의실 A (14:00)</div>
-              </div>
-              <div className="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded">D-27</div>
-            </div>
+            )}
           </div>
-
         </div>
       </div>
 
