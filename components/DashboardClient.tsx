@@ -9,7 +9,7 @@ import LeaveHistoryModal from "@/components/LeaveHistoryModal";
 import WorkHistoryModal from "@/components/WorkHistoryModal";
 import ApprovalModal from "@/components/ApprovalModal";
 import OvertimeApplicationModal from "@/components/OvertimeApplicationModal"; 
-import TeamListWidget, { Employee } from "@/components/TeamListWidget"; // Employee 타입 import
+import TeamListWidget, { Employee } from "@/components/TeamListWidget"; 
 import DashboardWidgets from "@/components/DashboardWidgets";
 import { 
   PlusCircle, Clock, PieChart, Calendar, History, List, Inbox, ChevronRight, UserCog, 
@@ -20,23 +20,13 @@ interface DashboardClientProps {
   userName: string;
   department: string;
   role?: string;
-  
-  // [DB: profiles.total_leave_days] 기본 연차 총 개수
   totalLeave: number;
-  // [DB: profiles.used_leave_days] 사용한 기본 연차
   usedLeave: number;
-  
-  // [DB: profiles.extra_leave_days] 발생한 보상휴가 총합
   extraTotalLeave: number;
-  // [DB: profiles.extra_used_leave_days] 사용한 보상휴가
   extraUsedLeave: number;
-  
-  // [카운트]
   leaveRequestCount: number;
   overtimeRequestCount: number;
   pendingApprovalCount: number;
-
-  // [NEW] 전체 직원 리스트 (DB에서 받아옴)
   employees: Employee[];
 }
 
@@ -51,53 +41,41 @@ export default function DashboardClient({
   leaveRequestCount,
   overtimeRequestCount,
   pendingApprovalCount,
-  employees = [] // 기본값 설정
+  employees = [] 
 }: DashboardClientProps) {
   
   const router = useRouter();
   
-  // --- State ---
   const [localLeaveCount, setLocalLeaveCount] = useState(leaveRequestCount);
   const [localOvertimeCount, setLocalOvertimeCount] = useState(overtimeRequestCount);
 
   useEffect(() => { setLocalLeaveCount(leaveRequestCount); }, [leaveRequestCount]);
   useEffect(() => { setLocalOvertimeCount(overtimeRequestCount); }, [overtimeRequestCount]);
 
-  // 모달 상태
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isWorkHistoryOpen, setIsWorkHistoryOpen] = useState(false);
   const [isApprovalOpen, setIsApprovalOpen] = useState(false);
   const [isOvertimeOpen, setIsOvertimeOpen] = useState(false);
   
-  // 선택된 직원 (캘린더 조회용)
   const [selectedTeamMember, setSelectedTeamMember] = useState<Employee | null>(null);
 
-  // --- [로직] 휴가 계산 및 포맷팅 ---
+  const formatLeave = (val: number) => Number(val.toFixed(2)).toString();
 
-  // 1. 숫자 포맷팅 (소수점 뒤 불필요한 0 제거)
-  const formatLeave = (val: number) => {
-    return Number(val.toFixed(2)).toString();
-  };
-
-  // 2. 사용률(%) 계산 (0 나누기 방지)
   const calculateRate = (total: number, used: number) => {
     if (total <= 0) return 0;
     const rate = (used / total) * 100;
-    return Math.min(100, Math.max(0, rate)); // 0~100 사이로 제한
+    return Math.min(100, Math.max(0, rate)); 
   };
 
-  // --- [A] 기본 연차 계산 ---
-  const annualRemaining = totalLeave - usedLeave; // 잔여 = 총 - 사용
+  const annualRemaining = totalLeave - usedLeave; 
   const annualRate = calculateRate(totalLeave, usedLeave);
-  const annualRateStr = annualRate.toFixed(1); // 표시용 문자열
+  const annualRateStr = annualRate.toFixed(1); 
 
-  // --- [B] 연차 외 휴가(보상) 계산 ---
-  const extraRemaining = extraTotalLeave - extraUsedLeave; // 잔여 = 발생총합 - 사용
+  const extraRemaining = extraTotalLeave - extraUsedLeave; 
   const extraRate = calculateRate(extraTotalLeave, extraUsedLeave);
   const extraRateStr = extraRate.toFixed(1);
 
-  // --- 핸들러 ---
   const handleLeaveAdded = () => {
     setLocalLeaveCount((prev) => prev + 1); 
     router.refresh(); 
@@ -116,7 +94,6 @@ export default function DashboardClient({
   return (
     <main className="min-h-screen bg-gray-50 p-6">
       
-      {/* 모달들 */}
       <LeaveApplicationModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSuccess={handleLeaveAdded} />
       <LeaveHistoryModal isOpen={isHistoryOpen} onClose={() => setIsHistoryOpen(false)} onDelete={handleLeaveDeleted} />
       <WorkHistoryModal isOpen={isWorkHistoryOpen} onClose={() => setIsWorkHistoryOpen(false)} />
@@ -136,7 +113,6 @@ export default function DashboardClient({
             </p>
           </div>
 
-          {/* 관리자 버튼 */}
           {role === 'manager' && (
             <Link 
               href="/admin"
@@ -148,9 +124,8 @@ export default function DashboardClient({
           )}
         </div>
 
-        {/* 상단 통계 (카드 섹션) */}
+        {/* 상단 통계 (카드 섹션) - 항상 최상단 유지 */}
         <div className="space-y-6">
-           
            {/* 1. 기본 연차 현황 */}
            <div>
             <h3 className="text-gray-700 font-bold mb-3 flex items-center gap-2">
@@ -158,31 +133,24 @@ export default function DashboardClient({
               연차 현황
             </h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {/* 총 연차 */}
               <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
                 <div className="text-gray-500 text-xs font-medium mb-1">총 연차</div>
                 <div className="text-2xl font-bold text-gray-800">
                   {formatLeave(totalLeave)} <span className="text-sm font-normal text-gray-400">일</span>
                 </div>
               </div>
-              
-              {/* 사용 연차 */}
               <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
                 <div className="text-gray-500 text-xs font-medium mb-1">사용 연차</div>
                 <div className="text-2xl font-bold text-blue-600">
                   {formatLeave(usedLeave)} <span className="text-sm font-normal text-gray-400">일</span>
                 </div>
               </div>
-              
-              {/* 잔여 연차 */}
               <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
                 <div className="text-gray-500 text-xs font-medium mb-1">잔여 연차</div>
                 <div className={`text-2xl font-bold ${annualRemaining < 0 ? 'text-red-500' : 'text-green-600'}`}>
                   {formatLeave(annualRemaining)} <span className="text-sm font-normal text-gray-400">일</span>
                 </div>
               </div>
-              
-              {/* 사용률 그래프 */}
               <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 relative overflow-hidden flex flex-col justify-between">
                 <div>
                   <div className="text-gray-500 text-xs font-medium mb-1">연차 소진율</div>
@@ -207,31 +175,24 @@ export default function DashboardClient({
               연차 외 휴가 현황
             </h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {/* 발생 총합 */}
               <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
                 <div className="text-gray-500 text-xs font-medium mb-1">총 보상 휴가</div>
                 <div className="text-2xl font-bold text-gray-800">
                   {formatLeave(extraTotalLeave)} <span className="text-sm font-normal text-gray-400">일</span>
                 </div>
               </div>
-              
-              {/* 사용량 */}
               <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
                 <div className="text-gray-500 text-xs font-medium mb-1">사용</div>
                 <div className="text-2xl font-bold text-orange-600">
                   {formatLeave(extraUsedLeave)} <span className="text-sm font-normal text-gray-400">일</span>
                 </div>
               </div>
-              
-              {/* 잔여량 */}
               <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
                 <div className="text-gray-500 text-xs font-medium mb-1">잔여</div>
                 <div className={`text-2xl font-bold ${extraRemaining < 0 ? 'text-red-500' : 'text-gray-800'}`}>
                   {formatLeave(extraRemaining)} <span className="text-sm font-normal text-gray-400">일</span>
                 </div>
               </div>
-              
-              {/* 사용률 그래프 */}
               <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 relative overflow-hidden flex flex-col justify-between">
                 <div>
                   <div className="text-gray-500 text-xs font-medium mb-1">보상휴가 사용률</div>
@@ -250,10 +211,19 @@ export default function DashboardClient({
           </div>
         </div>
 
-        {/* 메인 컨텐츠 영역 */}
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+        {/* 
+          ⭐️ [LAYOUT CHANGE] 
+          Mobile: flex-col (세로 배치)
+          Desktop: grid (기존 유지)
+        */}
+        <div className="flex flex-col lg:grid lg:grid-cols-5 gap-6">
           
-          <div className="lg:col-span-4 flex flex-col h-full gap-6">
+          {/* 
+            ⭐️ [LEFT COLUMN] 캘린더 & 위젯 
+            Mobile: order-2 (버튼들 아래로 내림)
+            Desktop: order-1 (왼쪽에 배치, 기존 유지)
+          */}
+          <div className="lg:col-span-4 flex flex-col h-full gap-6 order-2 lg:order-1">
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 relative">
               <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
                 <Clock className="w-5 h-5 text-blue-500" />
@@ -265,7 +235,12 @@ export default function DashboardClient({
             <DashboardWidgets />
           </div>
 
-          <div className="lg:col-span-1 space-y-6">
+          {/* 
+            ⭐️ [RIGHT COLUMN] 버튼 & 직원 리스트
+            Mobile: order-1 (캘린더 위로 올림)
+            Desktop: order-2 (오른쪽에 배치, 기존 유지)
+          */}
+          <div className="lg:col-span-1 space-y-6 order-1 lg:order-2">
             
             {/* 관리자 결재함 */}
             <button 
@@ -297,7 +272,6 @@ export default function DashboardClient({
                 </h3>
               </div>
               <div className="p-4 space-y-4">
-                {/* 연차 섹션 */}
                 <div className="space-y-2">
                   <button 
                     onClick={() => setIsModalOpen(true)}
@@ -319,7 +293,6 @@ export default function DashboardClient({
 
                 <div className="h-px bg-gray-100"></div>
 
-                {/* 근무 섹션 */}
                 <div className="space-y-2">
                   <button 
                     onClick={() => setIsOvertimeOpen(true)}
@@ -358,7 +331,7 @@ export default function DashboardClient({
               <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-gray-500 transition-colors" />
             </Link>
 
-            {/* [NEW] 업데이트된 위젯: DB 직원 리스트 전달 */}
+            {/* 직원 리스트 위젯 */}
             <TeamListWidget 
               employees={employees} 
               onSelectUser={setSelectedTeamMember} 

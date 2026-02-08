@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { X, Check, XCircle, FileText, User, Calendar, ChevronRight, Loader2, AlertCircle, FileInput, FilePenLine, FileX2 } from "lucide-react";
+import { X, Check, XCircle, FileText, User, Calendar, ChevronRight, Loader2, AlertCircle, FileInput, FilePenLine, FileX2, History, CheckCircle2, Clock } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import { useRouter } from "next/navigation";
 
@@ -31,11 +31,16 @@ interface ApprovalRequest {
   rawData: any;
   
   isHoliday?: boolean;
-  // ⭐️ [NEW] 신청 유형 (create | update | cancel)
   requestType: string;
+  
+  // ⭐️ [NEW] 결재 처리 일시 (내역 조회용)
+  processedAt?: string;
 }
 
 export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
+  // ⭐️ [NEW] 뷰 모드 상태 (pending: 대기함, history: 내역함)
+  const [viewMode, setViewMode] = useState<"pending" | "history">("pending");
+  
   const [activeTab, setActiveTab] = useState("all");
   const [selectedRequest, setSelectedRequest] = useState<ApprovalRequest | null>(null);
   const [requests, setRequests] = useState<ApprovalRequest[]>([]);
@@ -60,12 +65,21 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data: lines, error: lineError } = await supabase
+      // ⭐️ [MODIFIED] viewMode에 따라 쿼리 조건 분기
+      let query = supabase
         .from("approval_lines")
         .select("*")
         .eq("approver_id", user.id)
-        .eq("status", "pending")
-        .order("created_at", { ascending: false });
+        .order("updated_at", { ascending: false }); // 최신순 정렬
+
+      if (viewMode === "pending") {
+        query = query.eq("status", "pending");
+      } else {
+        // 승인 또는 반려된 내역 조회
+        query = query.in("status", ["approved", "rejected"]);
+      }
+
+      const { data: lines, error: lineError } = await query;
 
       if (lineError || !lines || lines.length === 0) {
         setRequests([]);
@@ -129,6 +143,8 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
         // 4. 데이터 포맷팅
         if (details) {
           const reqDate = new Date(details.created_at).toLocaleDateString();
+          // ⭐️ [NEW] 처리 일시 포맷팅
+          const processedDate = line.updated_at ? new Date(line.updated_at).toLocaleDateString() : undefined;
           
           let timeRangeStr = "";
           let durationDisplay = ""; 
@@ -176,8 +192,8 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
             status: line.status,
             rawData: details,
             isHoliday: isHolidayWork,
-            // ⭐️ [NEW] 신청 유형 매핑 (기본값 create)
-            requestType: details.request_type || "create" 
+            requestType: details.request_type || "create",
+            processedAt: processedDate
           });
         }
       }
@@ -188,7 +204,7 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
     } finally {
       setLoading(false);
     }
-  }, [supabase]);
+  }, [supabase, viewMode]); // ⭐️ viewMode가 변경되면 다시 fetch
 
   useEffect(() => {
     if (isOpen) {
@@ -207,10 +223,9 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
       });
 
       if (error) {
-        // ⭐️ 에러 내용을 자세히 보기 위해 수정
         console.error("결재 처리 실패 상세:", JSON.stringify(error, null, 2));
         alert(`처리 실패: ${error.message || "알 수 없는 오류"}`);
-        return; // throw error 대신 return으로 중단
+        return; 
       }
 
       alert(status === "approved" ? "승인 처리되었습니다." : "반려 처리되었습니다.");
@@ -225,7 +240,6 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
     }
   };
 
-  // ⭐️ [NEW] 신청 유형 뱃지 렌더링 함수
   const renderRequestTypeBadge = (type: string) => {
     switch (type) {
       case 'update':
@@ -266,10 +280,10 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
             <div>
               <h2 className="text-lg font-bold flex items-center gap-2">
                 <FileText className="w-5 h-5 text-yellow-400" />
-                결재 대기 문서함
+                결재 문서함
               </h2>
               <p className="text-xs text-gray-400 mt-1">
-                승인 대기 중인 문서가 <span className="text-yellow-400 font-bold">{requests.length}건</span> 있습니다.
+                {viewMode === 'pending' ? '승인 대기 중인 문서가' : '내가 처리한 문서가'} <span className="text-yellow-400 font-bold">{requests.length}건</span> 있습니다.
               </p>
             </div>
             <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
@@ -277,9 +291,29 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
             </button>
           </div>
 
-          {/* 탭 메뉴 */}
-          <div className="px-6 pt-4 pb-0 border-b border-gray-200 bg-gray-50">
-            <div className="flex gap-6">
+          {/* ⭐️ [NEW] 상위 탭 (대기 / 내역) */}
+          <div className="px-6 pt-4 bg-white border-b border-gray-100">
+             <div className="flex p-1 bg-gray-100 rounded-lg w-full md:w-fit mb-4">
+                <button 
+                  onClick={() => setViewMode("pending")}
+                  className={`flex-1 md:flex-none px-6 py-1.5 rounded-md text-sm font-bold transition-all ${
+                    viewMode === "pending" ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  결재 대기
+                </button>
+                <button 
+                  onClick={() => setViewMode("history")}
+                  className={`flex-1 md:flex-none px-6 py-1.5 rounded-md text-sm font-bold transition-all ${
+                    viewMode === "history" ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  결재 내역
+                </button>
+             </div>
+
+             {/* 하위 탭 (전체 / 휴가 / 초과근무) */}
+             <div className="flex gap-6">
               <button onClick={() => setActiveTab("all")} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'all' ? 'border-gray-800 text-gray-800' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>전체</button>
               <button onClick={() => setActiveTab("leave")} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'leave' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>휴가 신청</button>
               <button onClick={() => setActiveTab("overtime")} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'overtime' ? 'border-purple-600 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>초과 근무</button>
@@ -300,29 +334,35 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
                     <div 
                       key={item.id} 
                       onClick={() => setSelectedRequest(item)}
-                      className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex flex-col md:flex-row gap-5 hover:border-blue-400 hover:shadow-md transition-all cursor-pointer group relative"
+                      className={`bg-white rounded-xl border shadow-sm p-5 flex flex-col md:flex-row gap-5 transition-all cursor-pointer group relative ${
+                        viewMode === 'history' ? 'border-gray-200 opacity-90 hover:opacity-100' : 'border-gray-200 hover:border-blue-400 hover:shadow-md'
+                      }`}
                     >
                       <div className="absolute top-3 right-3 text-gray-300 group-hover:text-blue-500 transition-colors">
                         <ChevronRight className="w-5 h-5" />
                       </div>
 
                       <div className="flex items-start gap-3 md:w-[180px] md:border-r md:border-gray-100 md:pr-4">
-                        <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 flex-shrink-0">
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
+                          viewMode === 'history' ? 'bg-gray-50 text-gray-400' : 'bg-gray-100 text-gray-500'
+                        }`}>
                           <User className="w-5 h-5" />
                         </div>
                         <div>
-                          <div className="font-bold text-gray-800 group-hover:text-blue-700 transition-colors">{item.applicant}</div>
+                          <div className={`font-bold transition-colors ${
+                            viewMode === 'history' ? 'text-gray-600' : 'text-gray-800 group-hover:text-blue-700'
+                          }`}>
+                            {item.applicant}
+                          </div>
                           <div className="text-xs text-gray-500">{item.role}</div>
-                          <div className="text-[10px] text-gray-400 mt-1">{item.requestDate}</div>
+                          <div className="text-[10px] text-gray-400 mt-1">{item.requestDate} 신청</div>
                         </div>
                       </div>
 
                       <div className="flex-1 space-y-2 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          {/* ⭐️ [NEW] 신청 유형 뱃지 표시 */}
                           {renderRequestTypeBadge(item.requestType)}
 
-                          {/* 카테고리 배지 */}
                           <span className={`px-2 py-0.5 rounded text-xs font-bold border flex-shrink-0 ${
                             item.type === 'leave' 
                               ? 'bg-blue-50 text-blue-600 border-blue-100' 
@@ -331,7 +371,6 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
                             {item.category}
                           </span>
 
-                          {/* 휴일 근무 배지 */}
                           {item.isHoliday && (
                             <span className="px-2 py-0.5 rounded text-xs font-bold border flex-shrink-0 bg-red-50 text-red-600 border-red-100 flex items-center gap-1">
                               <AlertCircle className="w-3 h-3" />
@@ -365,32 +404,64 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
                         </div>
                       </div>
 
+                      {/* ⭐️ [MODIFIED] 우측 영역: 대기(버튼) vs 내역(상태뱃지) */}
                       <div className="flex md:flex-col gap-2 justify-center md:border-l md:border-gray-100 md:pl-4 min-w-[100px]">
-                        <button 
-                          onClick={(e) => { 
-                            e.stopPropagation(); 
-                            handleProcess(item, "approved"); 
-                          }}
-                          className="flex-1 flex items-center justify-center gap-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-3 rounded-lg text-sm font-bold transition-colors shadow-sm"
-                        >
-                          <Check className="w-4 h-4" /> 승인
-                        </button>
-                        <button 
-                          onClick={(e) => { 
-                            e.stopPropagation(); 
-                            handleProcess(item, "rejected"); 
-                          }}
-                          className="flex-1 flex items-center justify-center gap-1 bg-white hover:bg-red-50 text-gray-500 hover:text-red-600 border border-gray-200 hover:border-red-200 py-2 px-3 rounded-lg text-sm font-medium transition-colors"
-                        >
-                          <XCircle className="w-4 h-4" /> 반려
-                        </button>
+                        {viewMode === "pending" ? (
+                          <>
+                            <button 
+                              onClick={(e) => { 
+                                e.stopPropagation(); 
+                                handleProcess(item, "approved"); 
+                              }}
+                              className="flex-1 flex items-center justify-center gap-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-3 rounded-lg text-sm font-bold transition-colors shadow-sm"
+                            >
+                              <Check className="w-4 h-4" /> 승인
+                            </button>
+                            <button 
+                              onClick={(e) => { 
+                                e.stopPropagation(); 
+                                handleProcess(item, "rejected"); 
+                              }}
+                              className="flex-1 flex items-center justify-center gap-1 bg-white hover:bg-red-50 text-gray-500 hover:text-red-600 border border-gray-200 hover:border-red-200 py-2 px-3 rounded-lg text-sm font-medium transition-colors"
+                            >
+                              <XCircle className="w-4 h-4" /> 반려
+                            </button>
+                          </>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center h-full gap-1">
+                            {item.status === "approved" ? (
+                              <div className="flex flex-col items-center text-blue-600">
+                                <CheckCircle2 className="w-6 h-6 mb-1" />
+                                <span className="text-xs font-bold">승인함</span>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col items-center text-red-500">
+                                <XCircle className="w-6 h-6 mb-1" />
+                                <span className="text-xs font-bold">반려함</span>
+                              </div>
+                            )}
+                            <div className="text-[10px] text-gray-400 flex items-center gap-0.5 mt-1">
+                               <Clock className="w-3 h-3" />
+                               {item.processedAt}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))
                 ) : (
                   <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-                    <Check className="w-12 h-12 text-gray-300 mb-3" />
-                    <p>처리할 결재 문서가 없습니다.</p>
+                    {viewMode === 'pending' ? (
+                        <>
+                            <Check className="w-12 h-12 text-gray-300 mb-3" />
+                            <p>처리할 결재 문서가 없습니다.</p>
+                        </>
+                    ) : (
+                        <>
+                            <History className="w-12 h-12 text-gray-300 mb-3" />
+                            <p>처리된 결재 내역이 없습니다.</p>
+                        </>
+                    )}
                   </div>
                 )}
               </div>

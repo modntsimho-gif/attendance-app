@@ -11,7 +11,7 @@ export default async function SchedulePage() {
   const { data: employees, error } = await supabase
     .from("profiles")
     .select("*")
-    // .eq("role", "employee")
+    .eq("role", "employee")
     .order("name", { ascending: true });
 
   if (error) {

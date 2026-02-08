@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, Calendar, Clock, CheckCircle2, XCircle, AlertCircle, ChevronRight, History, GitCommit, Link2 } from "lucide-react";
+import { ArrowLeft, Calendar, Clock, ChevronRight, History, GitCommit, Link2, UserCheck } from "lucide-react";
 import { useState, useMemo } from "react";
 import LeaveApplicationModal from "@/components/LeaveApplicationModal"; 
 import OvertimeApplicationModal from "@/components/OvertimeApplicationModal"; 
@@ -157,7 +157,7 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes }: Emp
                         {group.map((item, idx) => {
                           const isLatest = idx === 0;
                           
-                          // ⭐️ 원천 초과근무 찾기
+                          // 원천 초과근무 찾기 (overtimes 배열에서 검색)
                           const sourceOvertime = item.overtime_request_id 
                             ? overtimes.find(ot => ot.id === item.overtime_request_id) 
                             : null;
@@ -196,18 +196,26 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes }: Emp
                                 <div className="text-sm text-gray-600 mb-2">
                                   <div className="truncate w-full text-xs text-gray-500 mb-1">{item.reason}</div>
                                   
-                                  {/* ⭐️ 원천 초과근무 연결 버튼 */}
+                                  {/* 원천 초과근무 연결 버튼 */}
                                   {sourceOvertime && (
                                     <div 
                                       onClick={(e) => {
-                                        e.stopPropagation(); // 부모 클릭 방지
+                                        e.stopPropagation(); 
                                         handleOvertimeClick(sourceOvertime);
                                       }}
-                                      className="inline-flex items-center gap-1.5 bg-orange-50 border border-orange-200 text-orange-700 px-2 py-1 rounded text-xs font-medium hover:bg-orange-100 hover:border-orange-300 transition-colors group/link"
+                                      className="inline-flex items-center gap-1.5 bg-orange-50 border border-orange-200 text-orange-700 px-2 py-1 rounded text-xs font-medium hover:bg-orange-100 hover:border-orange-300 transition-colors group/link mb-1"
                                     >
                                       <Link2 className="w-3 h-3" />
                                       <span>원천: {sourceOvertime.title}</span>
                                       <ChevronRight className="w-3 h-3 opacity-50 group-hover/link:opacity-100" />
+                                    </div>
+                                  )}
+
+                                  {/* ⭐️ 결재자 정보 표시 (서버에서 가공된 approver_name 사용) */}
+                                  {item.approver_name && (
+                                    <div className="flex items-center gap-1.5 mt-1 text-xs text-gray-500 bg-gray-100/50 px-2 py-1 rounded w-fit">
+                                      <UserCheck className="w-3 h-3 text-gray-400" />
+                                      <span>결재: <span className="font-medium text-gray-700">{item.approver_name}</span></span>
                                     </div>
                                   )}
                                 </div>
@@ -286,12 +294,24 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes }: Emp
                                   </div>
                                 </div>
 
-                                <div className="flex justify-between items-end text-sm">
-                                  <div className="text-gray-600">
-                                    <div className="text-xs text-gray-500 flex items-center gap-1">
-                                      <Calendar className="w-3 h-3" />
-                                      {item.work_date} ({item.start_time.slice(0,5)}~{item.end_time.slice(0,5)})
+                                <div className="text-sm text-gray-600 mb-2">
+                                  <div className="text-xs text-gray-500 flex items-center gap-1 mb-1">
+                                    <Calendar className="w-3 h-3" />
+                                    {item.work_date} ({item.start_time.slice(0,5)}~{item.end_time.slice(0,5)})
+                                  </div>
+                                  
+                                  {/* ⭐️ 결재자 정보 표시 */}
+                                  {item.approver_name && (
+                                    <div className="flex items-center gap-1.5 mt-1.5 text-xs text-gray-500 bg-gray-100/50 px-2 py-1 rounded w-fit">
+                                      <UserCheck className="w-3 h-3 text-gray-400" />
+                                      <span>결재: <span className="font-medium text-gray-700">{item.approver_name}</span></span>
                                     </div>
+                                  )}
+                                </div>
+
+                                <div className="flex justify-between items-end text-sm">
+                                  <div className="text-[10px] text-gray-400">
+                                    {new Date(item.created_at).toLocaleDateString()} 신청
                                   </div>
                                   <div className={`font-bold ${item.request_type === 'cancel' ? 'text-gray-400 line-through' : 'text-blue-600'}`}>
                                     +{Number(item.recognized_hours).toFixed(1)}h
