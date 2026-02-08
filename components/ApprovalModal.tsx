@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { X, Check, XCircle, FileText, User, Calendar, ChevronRight, Loader2, AlertCircle } from "lucide-react";
+import { X, Check, XCircle, FileText, User, Calendar, ChevronRight, Loader2, AlertCircle, FileInput, FilePenLine, FileX2 } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import { useRouter } from "next/navigation";
 
@@ -30,8 +30,9 @@ interface ApprovalRequest {
   status: string;
   rawData: any;
   
-  // [NEW] 공휴일/휴일 여부 식별자
-  isHoliday?: boolean; 
+  isHoliday?: boolean;
+  // ⭐️ [NEW] 신청 유형 (create | update | cancel)
+  requestType: string;
 }
 
 export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
@@ -131,7 +132,7 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
           
           let timeRangeStr = "";
           let durationDisplay = ""; 
-          let isHolidayWork = false; // [NEW] 휴일 여부 체크
+          let isHolidayWork = false;
 
           if (type === "leave") {
              timeRangeStr = details.start_time 
@@ -153,8 +154,6 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
                durationDisplay += ` (${days}일 보상)`;
              }
 
-             // [NEW] DB에 is_holiday 컬럼이 있다고 가정하고 매핑
-             // (만약 컬럼명이 다르다면 details.holiday_work 등으로 수정 필요)
              isHolidayWork = !!details.is_holiday; 
           }
 
@@ -176,7 +175,9 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
             requestDate: reqDate,
             status: line.status,
             rawData: details,
-            isHoliday: isHolidayWork // [NEW] 저장
+            isHoliday: isHolidayWork,
+            // ⭐️ [NEW] 신청 유형 매핑 (기본값 create)
+            requestType: details.request_type || "create" 
           });
         }
       }
@@ -219,6 +220,30 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
     } catch (e) {
       console.error("에러 발생:", e);
       alert("처리 중 오류가 발생했습니다. 관리자에게 문의하세요.");
+    }
+  };
+
+  // ⭐️ [NEW] 신청 유형 뱃지 렌더링 함수
+  const renderRequestTypeBadge = (type: string) => {
+    switch (type) {
+      case 'update':
+        return (
+          <span className="px-2 py-0.5 rounded text-xs font-bold border flex-shrink-0 bg-orange-50 text-orange-600 border-orange-100 flex items-center gap-1">
+            <FilePenLine className="w-3 h-3" /> 변경
+          </span>
+        );
+      case 'cancel':
+        return (
+          <span className="px-2 py-0.5 rounded text-xs font-bold border flex-shrink-0 bg-red-50 text-red-600 border-red-100 flex items-center gap-1">
+            <FileX2 className="w-3 h-3" /> 취소
+          </span>
+        );
+      default: // create
+        return (
+          <span className="px-2 py-0.5 rounded text-xs font-bold border flex-shrink-0 bg-green-50 text-green-600 border-green-100 flex items-center gap-1">
+            <FileInput className="w-3 h-3" /> 신청
+          </span>
+        );
     }
   };
 
@@ -292,7 +317,10 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
 
                       <div className="flex-1 space-y-2 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          {/* [기존] 카테고리 배지 */}
+                          {/* ⭐️ [NEW] 신청 유형 뱃지 표시 */}
+                          {renderRequestTypeBadge(item.requestType)}
+
+                          {/* 카테고리 배지 */}
                           <span className={`px-2 py-0.5 rounded text-xs font-bold border flex-shrink-0 ${
                             item.type === 'leave' 
                               ? 'bg-blue-50 text-blue-600 border-blue-100' 
@@ -301,7 +329,7 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
                             {item.category}
                           </span>
 
-                          {/* [NEW] 휴일 근무 배지 (빨간색) */}
+                          {/* 휴일 근무 배지 */}
                           {item.isHoliday && (
                             <span className="px-2 py-0.5 rounded text-xs font-bold border flex-shrink-0 bg-red-50 text-red-600 border-red-100 flex items-center gap-1">
                               <AlertCircle className="w-3 h-3" />

@@ -20,9 +20,15 @@ export async function submitLeaveRequest(formData: FormData) {
   const endDate = formData.get("endDate") as string;
   const totalLeaveDays = parseFloat(formData.get("totalLeaveDays") as string || "0");
 
-  // [수정] 초과근무 ID 처리 (빈 문자열이면 null로 변환하여 UUID 에러 방지)
+  // [기존] 초과근무 ID 처리
   const rawOtId = formData.get("overtimeRequestId")?.toString();
   const overtimeRequestId = (rawOtId && rawOtId.trim() !== "") ? rawOtId : null;
+
+  // ⭐️ [NEW] 신청 유형 및 원본 ID 처리
+  const requestType = formData.get("requestType")?.toString() || "create";
+  
+  const rawOriginalId = formData.get("originalLeaveId")?.toString();
+  const originalLeaveRequestId = (rawOriginalId && rawOriginalId.trim() !== "") ? rawOriginalId : null;
   
   const deductedHours = totalLeaveDays * 8; 
 
@@ -31,9 +37,14 @@ export async function submitLeaveRequest(formData: FormData) {
     return { error: "필수 항목(휴가 종류, 기간)을 입력해주세요." };
   }
 
-  // [추가] 대체휴무인데 원천 ID가 없으면 에러
+  // [기존] 대체휴무인데 원천 ID가 없으면 에러
   if (leaveType.startsWith("대체휴무") && !overtimeRequestId) {
     return { error: "대체휴무 사용 시 보상 휴가 원천을 선택해야 합니다." };
+  }
+
+  // ⭐️ [NEW] 변경/취소인데 원본 ID가 없으면 에러 (방어 로직)
+  if ((requestType === 'update' || requestType === 'cancel') && !originalLeaveRequestId) {
+    return { error: "변경 또는 취소 신청 시 원본 내역 정보가 누락되었습니다." };
   }
 
   // 5. DB 저장용 객체 생성
@@ -50,6 +61,10 @@ export async function submitLeaveRequest(formData: FormData) {
     total_leave_days: totalLeaveDays,
     deducted_hours: deductedHours,
     overtime_request_id: overtimeRequestId, // null 또는 UUID
+
+    // ⭐️ [NEW] 추가된 컬럼 매핑
+    request_type: requestType,
+    original_leave_request_id: originalLeaveRequestId, // null 또는 UUID
 
     replacement_date_1: formData.get("repDate1") as string || null,
     replacement_time_1_start: formData.get("repTime1Start") as string || null,

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/utils/supabase/client"; 
 import { useRouter } from "next/navigation";
-import { X, Clock, CheckCircle2, AlertCircle, XCircle, Filter, ArrowRight, Calculator, Loader2, Trash2 } from "lucide-react";
+import { X, Clock, CheckCircle2, AlertCircle, XCircle, Filter, ArrowRight, Calculator, Loader2, Trash2, FileText, FilePenLine, FileX2 } from "lucide-react";
 import OvertimeApplicationModal from "./OvertimeApplicationModal";
 import { deleteOvertimeRequest } from "@/app/actions/overtime"; 
 
@@ -21,7 +21,6 @@ interface OvertimeRequest {
   end_time: string;
   total_hours: number;
   
-  // 새로 추가된 컬럼들
   recognized_hours: number; 
   recognized_days: number;
   is_holiday: boolean;
@@ -29,6 +28,7 @@ interface OvertimeRequest {
   reason: string;
   status: string;
   created_at: string;
+  request_type?: string; // ⭐️ [NEW] 신청 유형 필드 추가
 }
 
 export default function WorkHistoryModal({ isOpen, onClose }: WorkHistoryModalProps) {
@@ -107,6 +107,33 @@ export default function WorkHistoryModal({ isOpen, onClose }: WorkHistoryModalPr
     }
   };
 
+  // ⭐️ [NEW] 신청 유형 뱃지 렌더링 함수
+  const renderRequestTypeBadge = (type?: string) => {
+    const safeType = type || 'create'; // 기본값: 신청
+    switch (safeType) {
+      case 'create':
+        return (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+            <FileText className="w-3 h-3" /> 신청
+          </span>
+        );
+      case 'update':
+        return (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-200">
+            <FilePenLine className="w-3 h-3" /> 변경
+          </span>
+        );
+      case 'cancel':
+        return (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-pink-100 text-pink-700 border border-pink-200">
+            <FileX2 className="w-3 h-3" /> 취소
+          </span>
+        );
+      default:
+        return null;
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -150,7 +177,7 @@ export default function WorkHistoryModal({ isOpen, onClose }: WorkHistoryModalPr
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-200 text-xs text-gray-500 uppercase">
-                      <th className="px-4 py-3 font-semibold">근무일 / 유형</th>
+                      <th className="px-4 py-3 font-semibold">유형 / 근무일</th>
                       <th className="px-4 py-3 font-semibold">근무 시간</th>
                       <th className="px-4 py-3 font-semibold bg-purple-50/50 text-purple-900 border-x border-purple-100">
                         보상 휴가
@@ -164,8 +191,6 @@ export default function WorkHistoryModal({ isOpen, onClose }: WorkHistoryModalPr
                     {filteredData.length > 0 ? (
                       filteredData.map((item) => {
                         const hours = item.total_hours || 0;
-                        
-                        // [MODIFIED] DB에 저장된 값 사용 (없으면 0 처리)
                         const rewardHours = item.recognized_hours || 0;
                         const rewardDays = item.recognized_days || 0;
                         const isHoliday = item.is_holiday;
@@ -174,22 +199,24 @@ export default function WorkHistoryModal({ isOpen, onClose }: WorkHistoryModalPr
                           <tr 
                             key={item.id} 
                             onClick={() => handleRowClick(item)} 
-                            className="hover:bg-purple-50/50 transition-colors cursor-pointer"
+                            className="hover:bg-purple-50/50 transition-colors cursor-pointer group"
                           >
                             <td className="px-4 py-3">
-                              <div className="font-bold text-gray-800 text-sm">{item.title}</div>
-                              <div className="text-xs text-gray-400 mt-0.5">{item.work_date}</div>
+                              {/* ⭐️ [NEW] 유형 뱃지 표시 */}
+                              <div className="flex items-center gap-2 mb-1">
+                                {renderRequestTypeBadge(item.request_type)}
+                                <span className="font-bold text-gray-800 text-sm">{item.work_date}</span>
+                              </div>
+                              <div className="text-xs text-gray-400 mt-0.5">{item.title}</div>
                             </td>
                             <td className="px-4 py-3 text-sm text-gray-600">
                               <div className="font-medium">{item.start_time} ~ {item.end_time}</div>
                               <div className="text-xs text-gray-400 mt-0.5">총 {hours}시간 근무</div>
                             </td>
                             
-                            {/* [MODIFIED] 인정 휴가 표시 컬럼 */}
                             <td className="px-4 py-3 bg-purple-50/30 border-x border-purple-50">
                               <div className="flex flex-col gap-1">
                                 <div className="flex items-center gap-1 text-[11px] text-gray-500">
-                                  {/* 공휴일 여부에 따른 뱃지 표시 */}
                                   {isHoliday ? (
                                     <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-600 font-bold text-[10px]">공휴일 2.0배</span>
                                   ) : (
@@ -199,7 +226,11 @@ export default function WorkHistoryModal({ isOpen, onClose }: WorkHistoryModalPr
                                 </div>
                                 <div className="flex items-center gap-2">
                                   <ArrowRight className="w-3 h-3 text-purple-400" />
-                                  <span className="text-sm font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded border border-purple-200">
+                                  <span className={`text-sm font-bold px-2 py-0.5 rounded border ${
+                                      item.request_type === 'cancel' 
+                                      ? 'bg-red-50 text-red-600 border-red-200 line-through decoration-red-400' 
+                                      : 'bg-purple-100 text-purple-700 border-purple-200'
+                                  }`}>
                                     {rewardHours}h ({Number(rewardDays).toFixed(2)}일)
                                   </span>
                                 </div>

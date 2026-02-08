@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/utils/supabase/client";
-import { X, Calendar, CheckCircle2, AlertCircle, XCircle, Filter, Loader2, Trash2 } from "lucide-react";
+import { X, Calendar, CheckCircle2, AlertCircle, XCircle, Filter, Loader2, Trash2, FileText, FilePenLine, FileX2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import LeaveApplicationModal from "./LeaveApplicationModal"; 
 
@@ -20,7 +20,8 @@ interface LeaveRequest {
   reason: string;
   status: string;
   created_at: string;
-  total_leave_days?: number; // [NEW] DB에서 가져올 차감 일수 (nullable)
+  total_leave_days?: number;
+  request_type?: string; // ⭐️ [NEW] 신청 유형 필드 추가
 }
 
 export default function LeaveHistoryModal({ isOpen, onClose, onDelete }: LeaveHistoryModalProps) {
@@ -45,7 +46,6 @@ export default function LeaveHistoryModal({ isOpen, onClose, onDelete }: LeaveHi
     const { data: { user } } = await supabase.auth.getUser();
     
     if (user) {
-      // select("*")를 하면 자동으로 total_leave_days 컬럼도 가져옵니다.
       const { data, error } = await supabase
         .from("leave_requests")
         .select("*")
@@ -93,7 +93,6 @@ export default function LeaveHistoryModal({ isOpen, onClose, onDelete }: LeaveHi
     setIsDetailOpen(true);
   };
 
-  // [Fallback] 예전 데이터(DB에 값이 없는 경우)를 위한 계산 함수
   const calculateDaysFallback = (start: string, end: string, type: string) => {
     if (type.includes("반차")) return 0.5;
     if (type.includes("반반")) return 0.25;
@@ -120,6 +119,33 @@ export default function LeaveHistoryModal({ isOpen, onClose, onDelete }: LeaveHi
         return <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800"><XCircle className="w-3 h-3"/> 반려됨</span>;
       default:
         return <span className="text-xs text-gray-500">{status}</span>;
+    }
+  };
+
+  // ⭐️ [NEW] 신청 유형 뱃지 렌더링 함수
+  const renderRequestTypeBadge = (type?: string) => {
+    const safeType = type || 'create'; // 기본값: 신청
+    switch (safeType) {
+      case 'create':
+        return (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+            <FileText className="w-3 h-3" /> 신청
+          </span>
+        );
+      case 'update':
+        return (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-200">
+            <FilePenLine className="w-3 h-3" /> 변경
+          </span>
+        );
+      case 'cancel':
+        return (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-pink-100 text-pink-700 border border-pink-200">
+            <FileX2 className="w-3 h-3" /> 취소
+          </span>
+        );
+      default:
+        return null;
     }
   };
 
@@ -160,7 +186,7 @@ export default function LeaveHistoryModal({ isOpen, onClose, onDelete }: LeaveHi
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-200 text-xs text-gray-500 uppercase">
-                      <th className="px-4 py-3 font-semibold">신청일 / 종류</th>
+                      <th className="px-4 py-3 font-semibold">유형 / 종류 / 신청일</th>
                       <th className="px-4 py-3 font-semibold">기간</th>
                       <th className="px-4 py-3 font-semibold text-center">사용일수</th>
                       <th className="px-4 py-3 font-semibold">사유</th>
@@ -177,7 +203,11 @@ export default function LeaveHistoryModal({ isOpen, onClose, onDelete }: LeaveHi
                           className="hover:bg-blue-50/50 transition-colors cursor-pointer group"
                         >
                           <td className="px-4 py-3">
-                            <div className="font-bold text-gray-800 text-sm">{item.leave_type}</div>
+                            {/* ⭐️ [NEW] 유형 뱃지와 휴가 종류 표시 */}
+                            <div className="flex items-center gap-2 mb-1">
+                                {renderRequestTypeBadge(item.request_type)}
+                                <span className="font-bold text-gray-800 text-sm">{item.leave_type}</span>
+                            </div>
                             <div className="text-xs text-gray-400 mt-0.5">
                               {new Date(item.created_at).toLocaleDateString()} 신청
                             </div>
@@ -186,10 +216,12 @@ export default function LeaveHistoryModal({ isOpen, onClose, onDelete }: LeaveHi
                             {item.start_date} ~ {item.end_date}
                           </td>
                           
-                          {/* [NEW] DB 값 우선 사용, 없으면 계산 로직 사용 */}
                           <td className="px-4 py-3 text-center">
-                            <span className="bg-gray-100 text-gray-700 text-xs font-bold px-2 py-1 rounded">
-                              {/* item.total_leave_days가 있으면 그것을, 없으면(null/undefined) fallback 계산 */}
+                            <span className={`text-xs font-bold px-2 py-1 rounded ${
+                                item.request_type === 'cancel' 
+                                ? 'bg-red-50 text-red-600 line-through decoration-red-400' 
+                                : 'bg-gray-100 text-gray-700'
+                            }`}>
                               {item.total_leave_days ?? calculateDaysFallback(item.start_date, item.end_date, item.leave_type)}일
                             </span>
                           </td>
