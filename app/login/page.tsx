@@ -6,7 +6,7 @@ import { login, signup } from "./actions";
 import { Loader2, User, Lock, Mail, Building, IdCard, ChevronDown } from "lucide-react";
 
 const DEPARTMENTS = ["CEO", "대외협력팀", "소원사업팀", "경영지원팀"];
-const POSITIONS = ["간사", "대리", "과장", "팀장", "사무총장"];
+const POSITIONS = ["간사", "대리", "과장", "차장" ,"팀장", "사무총장"];
 
 export default function LoginPage() {
   const [isLogin, setIsLogin] = useState(true);
