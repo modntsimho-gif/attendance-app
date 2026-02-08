@@ -1,83 +1,146 @@
 "use server";
 
 import { createClient } from "@/utils/supabase/server";
-import { addDays } from "date-fns";
+import { addDays, format, parseISO } from "date-fns";
+
+// ⭐️ [공통 로직] 휴가 데이터 그룹화 및 최신 유효 데이터 필터링
+function filterValidLeaves(leaves: any[]) {
+  if (!leaves || leaves.length === 0) return [];
+
+  const itemMap = new Map<string, any>();
+  const parentMap = new Map<string, string>();
+
+  // 1. 매핑
+  leaves.forEach((item) => {
+    itemMap.set(item.id, item);
+    if (item.original_leave_request_id) {
+      parentMap.set(item.id, item.original_leave_request_id);
+    }
+  });
+
+  // 2. 루트 ID 찾기
+  const findRootId = (currentId: string): string => {
+    let pointer = currentId;
+    while (parentMap.has(pointer)) {
+      const parentId = parentMap.get(pointer)!;
+      if (!itemMap.has(parentId)) break;
+      pointer = parentId;
+    }
+    return pointer;
+  };
+
+  // 3. 그룹핑
+  const groups: Record<string, any[]> = {};
+  leaves.forEach((item) => {
+    const rootId = findRootId(item.id);
+    if (!groups[rootId]) groups[rootId] = [];
+    groups[rootId].push(item);
+  });
+
+  // 4. 최신 상태 추출 및 유효성 검사
+  const validItems: any[] = [];
+  Object.values(groups).forEach((group) => {
+    // 최신순 정렬 (created_at 내림차순)
+    group.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const latest = group[0];
+
+    // ❌ 제외 조건:
+    // 1. 취소(cancel) 신청인 경우
+    // 2. 상태가 반려(rejected) 또는 취소(cancelled)인 경우
+    if (latest.request_type === 'cancel') return;
+    if (latest.status === 'rejected' || latest.status === 'cancelled') return;
+
+    // ✅ 통과된 항목만 추가
+    validItems.push(latest);
+  });
+
+  return validItems;
+}
 
 export async function getDashboardData() {
   const supabase = await createClient();
   
-  // 1. 현재 로그인한 사용자 정보 가져오기
+  // 1. 현재 로그인한 사용자 정보
   const { data: { user } } = await supabase.auth.getUser();
   
-  // 한국 시간 기준 오늘 날짜 (YYYY-MM-DD)
-  const today = new Date();
+  // 날짜 기준 설정 (KST)
+  const now = new Date();
   const kstOffset = 9 * 60 * 60 * 1000;
-  const kstDate = new Date(today.getTime() + kstOffset).toISOString().split('T')[0];
+  const todayDate = new Date(now.getTime() + kstOffset);
+  const kstDateStr = todayDate.toISOString().split('T')[0]; // YYYY-MM-DD
   
-  // 검색 범위 (오늘 ~ 30일 뒤)
-  const futureDate = new Date(today.getTime() + (30 * 24 * 60 * 60 * 1000)).toISOString().split('T')[0];
+  // 검색 범위: 오늘 ~ 30일 뒤
+  const futureDateStr = new Date(todayDate.getTime() + (30 * 24 * 60 * 60 * 1000)).toISOString().split('T')[0];
 
   try {
     // ---------------------------------------------------------
-    // 1. [오늘] 우리 팀 현황 (오늘 날짜가 포함된 승인된 휴가)
+    // 1. [휴가 데이터 통합 조회]
+    //    오늘 포함 미래에 끝나는 모든 휴가를 가져와서 메모리에서 필터링합니다.
+    //    (변경/취소 이력 추적을 위해 status 필터링 없이 가져옵니다)
     // ---------------------------------------------------------
-    const { data: todayLeaves } = await supabase
+    const { data: rawLeaves } = await supabase
       .from("leave_requests")
       .select(`
-        id, leave_type, start_date, end_date,
+        id, leave_type, start_date, end_date, status, request_type, created_at, user_id, original_leave_request_id,
         profiles!inner ( name, department, position, avatar_url )
       `)
-      .eq("status", "approved")
-      .lte("start_date", kstDate)
-      .gte("end_date", kstDate);
+      .gte("end_date", kstDateStr); // 종료일이 오늘 이후인 것들 (오늘 진행중인 것 포함)
+
+    // ⭐️ 데이터 정제 (최신 상태만 남김)
+    const validLeaves = filterValidLeaves(rawLeaves || []);
 
     // ---------------------------------------------------------
-    // 2. [나의] 다가오는 가장 빠른 휴가 (D-Day용)
+    // 2. [데이터 분류] 정제된 validLeaves를 용도에 맞게 나눔
     // ---------------------------------------------------------
+
+    // A. [오늘] 휴가자 (승인됨 + 오늘 날짜가 기간 내 포함)
+    const todayLeaves = validLeaves.filter(l => 
+      l.status === 'approved' && 
+      l.start_date <= kstDateStr && 
+      l.end_date >= kstDateStr
+    );
+
+    // B. [나의] 다음 휴가 (승인됨 + 시작일이 오늘 이후 + 내 아이디)
     let myNextLeave = null;
     if (user) {
-      const { data } = await supabase
-        .from("leave_requests")
-        .select("start_date, leave_type")
-        .eq("user_id", user.id)
-        .eq("status", "approved")
-        .gt("start_date", kstDate) // 오늘 이후
-        .order("start_date", { ascending: true })
-        .limit(1)
-        .single();
-      myNextLeave = data;
+      const myFutureLeaves = validLeaves
+        .filter(l => 
+          l.user_id === user.id && 
+          l.status === 'approved' && 
+          l.start_date > kstDateStr
+        )
+        .sort((a, b) => a.start_date.localeCompare(b.start_date)); // 가까운 날짜순
+      
+      if (myFutureLeaves.length > 0) {
+        myNextLeave = myFutureLeaves[0];
+      }
     }
 
+    // C. [미래] 동료들의 휴가 (승인됨 + 시작일이 오늘 이후 ~ 30일 이내)
+    const upcomingLeaves = validLeaves
+      .filter(l => 
+        l.status === 'approved' && 
+        l.start_date > kstDateStr && 
+        l.start_date <= futureDateStr
+      )
+      .sort((a, b) => a.start_date.localeCompare(b.start_date))
+      .slice(0, 10); // 최대 10개만
+
     // ---------------------------------------------------------
-    // 3. [미래] 다가오는 일정 (공휴일 + 동료 휴가)
+    // 3. [공휴일] 조회 (단순 조회)
     // ---------------------------------------------------------
-    
-    // 3-1. 공휴일 조회
     const { data: holidays } = await supabase
       .from("public_holidays")
       .select("*")
-      .gt("date", kstDate)
-      .lte("date", futureDate)
+      .gt("date", kstDateStr)
+      .lte("date", futureDateStr)
       .order("date", { ascending: true });
 
-    // 3-2. 동료들의 다가오는 휴가 (나는 제외할 수도 있음)
-    const { data: upcomingLeaves } = await supabase
-      .from("leave_requests")
-      .select(`
-        id, leave_type, start_date, end_date,
-        profiles!inner ( name, department )
-      `)
-      .eq("status", "approved")
-      .gt("start_date", kstDate)
-      .lte("start_date", futureDate)
-      .order("start_date", { ascending: true })
-      .limit(5);
-
     return {
-      todayLeaves: todayLeaves || [],
+      todayLeaves,
       myNextLeave,
       holidays: holidays || [],
-      upcomingLeaves: upcomingLeaves || []
+      upcomingLeaves
     };
 
   } catch (error) {

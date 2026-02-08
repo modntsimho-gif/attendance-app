@@ -92,6 +92,8 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
 
   const [approvedLeaves, setApprovedLeaves] = useState<LeaveRecord[]>([]);
   const [selectedOriginalLeaveId, setSelectedOriginalLeaveId] = useState<string>("");
+  // ⭐️ [NEW] 조회 모드용 원본 연차 데이터 State
+  const [originalLeaveForView, setOriginalLeaveForView] = useState<LeaveRecord | null>(null);
 
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -126,6 +128,23 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
 
         const factor = LEAVE_OPTIONS.find(opt => opt.label === initialData.leave_type)?.days || 0;
         setLeaveFactor(factor);
+
+        // ⭐️ [NEW] 원본 연차 데이터 불러오기 (변경/취소 건일 경우)
+        if (initialData.original_leave_request_id) {
+          const fetchOriginalLeave = async () => {
+            const { data } = await supabase
+              .from("leave_requests")
+              .select("*")
+              .eq("id", initialData.original_leave_request_id)
+              .maybeSingle();
+            
+            if (data) {
+              setOriginalLeaveForView(data);
+              setSelectedOriginalLeaveId(data.id);
+            }
+          };
+          fetchOriginalLeave();
+        }
 
         if (initialData.overtime_request_id) {
           const fetchLinkedOt = async () => {
@@ -177,6 +196,7 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
         setRequestType("create");
         setSelectedOriginalLeaveId("");
         setApprovedLeaves([]);
+        setOriginalLeaveForView(null);
       }
     } else {
       setIsApproverSelectOpen(false);
@@ -186,30 +206,78 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
   }, [isOpen, isViewMode, initialData]);
 
   useEffect(() => {
+    // 1. 뷰 모드가 아니고, 변경/취소 탭을 눌렀을 때만 실행
     if (!isViewMode && (requestType === 'update' || requestType === 'cancel') && isOpen) {
-      const fetchApprovedLeaves = async () => {
+      
+      const fetchValidLeaves = async () => {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
 
+        // 1. 모든 내역 가져오기 (히스토리 추적용)
         const { data } = await supabase
           .from("leave_requests")
           .select("*")
           .eq("user_id", user.id)
-          .eq("status", "approved")
           .order("created_at", { ascending: false });
         
         if (data) {
-          setApprovedLeaves(data);
+          // 2. 그룹화 로직 (LeaveHistoryModal과 동일)
+          const itemMap = new Map<string, LeaveRecord>();
+          const parentMap = new Map<string, string>();
+
+          data.forEach((item: any) => {
+            itemMap.set(item.id, item);
+            if (item.original_leave_request_id) {
+              parentMap.set(item.id, item.original_leave_request_id);
+            }
+          });
+
+          // 루트 ID 찾기 함수
+          const findRootId = (currentId: string): string => {
+            let pointer = currentId;
+            while (parentMap.has(pointer)) {
+              pointer = parentMap.get(pointer)!;
+              if (!itemMap.has(pointer)) break;
+            }
+            return pointer;
+          };
+
+          // 그룹핑
+          const groups: Record<string, LeaveRecord[]> = {};
+          data.forEach((item: any) => {
+            const rootId = findRootId(item.id);
+            if (!groups[rootId]) groups[rootId] = [];
+            groups[rootId].push(item);
+          });
+
+          // 3. 유효한(살아있는) 승인 건만 필터링
+          const validLeaves: LeaveRecord[] = [];
+
+          Object.values(groups).forEach((group) => {
+            // 최신순 정렬
+            group.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+            const latest = group[0]; // 최종 상태
+
+            // ✅ 조건: 최종 상태가 '승인'이고, '취소' 타입이 아닌 것만 목록에 표시
+            if (latest.status === 'approved' && (latest as any).request_type !== 'cancel') {
+              validLeaves.push(latest);
+            }
+          });
+
+          setApprovedLeaves(validLeaves);
         }
       };
-      fetchApprovedLeaves();
+
+      fetchValidLeaves();
       
+      // 입력 폼 초기화
       setSelectedOriginalLeaveId("");
       setStartDate("");
       setEndDate("");
       setReason("");
       
     } else if (requestType === 'create') {
+      // 신청 탭으로 돌아오면 초기화
       setSelectedOriginalLeaveId("");
       setReason("");
     }
@@ -397,7 +465,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
 
   const isFormDisabled = isViewMode || requestType === 'cancel';
   
-  // ⭐️ [NEW] 버튼 비활성화 조건 계산
   const isOriginalRequired = requestType === 'update' || requestType === 'cancel';
   const isOriginalMissing = isOriginalRequired && !selectedOriginalLeaveId;
   const isSubmitDisabled = isSubmitting || approvers.length === 0 || isOriginalMissing;
@@ -562,53 +629,95 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                 </div>
               </div>
 
-              {/* 변경/취소 대상 선택 섹션 */}
-              {!isViewMode && (requestType === 'update' || requestType === 'cancel') && (
+              {/* ⭐️ [수정됨] 변경/취소 대상 선택 섹션 */}
+              {(requestType === 'update' || requestType === 'cancel') && (
                 <div className="animate-in fade-in slide-in-from-top-2">
                   <label className="block text-sm font-bold text-gray-700 mb-2">
-                    {requestType === 'update' ? "수정할 연차 선택" : "취소할 연차 선택"} (승인 완료된 건)
+                    {requestType === 'update' ? "변경 대상 연차" : "취소 대상 연차"}
+                    {isViewMode && <span className="text-xs font-normal text-gray-500 ml-2">(원본 데이터)</span>}
                   </label>
-                  <div className="border border-gray-200 rounded-lg bg-gray-50 p-4 max-h-60 overflow-y-auto space-y-2">
-                    {approvedLeaves.length === 0 ? (
-                      <div className="text-center text-sm text-gray-400 py-4">선택 가능한 승인된 연차 내역이 없습니다.</div>
-                    ) : (
-                      approvedLeaves.map((leave) => (
-                        <div 
-                          key={leave.id}
-                          onClick={() => handleSelectOriginalLeave(leave)}
-                          className={`p-3 rounded-lg border cursor-pointer transition-all flex items-center justify-between group ${
-                            selectedOriginalLeaveId === leave.id 
-                              ? "bg-blue-100 border-blue-500 ring-1 ring-blue-500" 
-                              : "bg-white border-gray-200 hover:border-blue-300 hover:shadow-sm"
-                          }`}
-                        >
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="text-xs font-bold bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{leave.leave_type}</span>
-                              <span className="text-xs text-gray-400">{new Date(leave.created_at).toLocaleDateString()} 신청</span>
-                            </div>
-                            <div className="text-sm font-bold text-gray-800 flex items-center gap-1">
-                              <CalendarIcon className="w-3.5 h-3.5 text-gray-500" />
-                              {leave.start_date} ~ {leave.end_date}
-                              <span className="text-xs font-normal text-gray-500 ml-1">({leave.total_days}일)</span>
-                            </div>
-                            {leave.reason && <div className="text-xs text-gray-500 mt-1 truncate max-w-[300px]">{leave.reason}</div>}
+
+                  {/* ⭐️ [CASE 1] 조회 모드: 원본 데이터 단일 카드 표시 */}
+                  {isViewMode ? (
+                    originalLeaveForView ? (
+                      <div className="p-4 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-between">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs font-bold bg-white border border-gray-200 text-gray-600 px-1.5 py-0.5 rounded">
+                              {originalLeaveForView.leave_type}
+                            </span>
+                            <span className="text-xs text-gray-400">
+                              {new Date(originalLeaveForView.created_at).toLocaleDateString()} 신청분
+                            </span>
                           </div>
-                          <div className="text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <ChevronRight className="w-5 h-5" />
+                          <div className="text-sm font-bold text-gray-800 flex items-center gap-1">
+                            <CalendarIcon className="w-3.5 h-3.5 text-gray-500" />
+                            {originalLeaveForView.start_date} ~ {originalLeaveForView.end_date}
+                            <span className="text-xs font-normal text-gray-500 ml-1">
+                              ({originalLeaveForView.total_days}일)
+                            </span>
                           </div>
+                          {originalLeaveForView.reason && (
+                            <div className="text-xs text-gray-500 mt-1 truncate max-w-[300px]">
+                              사유: {originalLeaveForView.reason}
+                            </div>
+                          )}
                         </div>
-                      ))
-                    )}
-                  </div>
-                  {selectedOriginalLeaveId && (
-                    <p className="text-xs text-blue-600 mt-2 flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3" />
-                      {requestType === 'update' 
-                        ? "선택한 연차 정보가 적용되었습니다. 내용을 수정 후 결재를 상신하세요."
-                        : "선택한 연차를 취소합니다. 아래에 취소 사유를 입력해주세요."
-                      }
-                    </p>
+                        <div className="text-xs font-bold text-gray-400 bg-white px-2 py-1 rounded border">
+                          원본
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-gray-400 p-3 border rounded bg-gray-50">
+                        원본 연차 정보를 불러올 수 없습니다.
+                      </div>
+                    )
+                  ) : (
+                    /* ⭐️ [CASE 2] 작성 모드: 기존 선택 리스트 표시 */
+                    <>
+                      <div className="border border-gray-200 rounded-lg bg-gray-50 p-4 max-h-60 overflow-y-auto space-y-2">
+                        {approvedLeaves.length === 0 ? (
+                          <div className="text-center text-sm text-gray-400 py-4">선택 가능한 승인된 연차 내역이 없습니다.</div>
+                        ) : (
+                          approvedLeaves.map((leave) => (
+                            <div 
+                              key={leave.id}
+                              onClick={() => handleSelectOriginalLeave(leave)}
+                              className={`p-3 rounded-lg border cursor-pointer transition-all flex items-center justify-between group ${
+                                selectedOriginalLeaveId === leave.id 
+                                  ? "bg-blue-100 border-blue-500 ring-1 ring-blue-500" 
+                                  : "bg-white border-gray-200 hover:border-blue-300 hover:shadow-sm"
+                              }`}
+                            >
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-xs font-bold bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{leave.leave_type}</span>
+                                  <span className="text-xs text-gray-400">{new Date(leave.created_at).toLocaleDateString()} 신청</span>
+                                </div>
+                                <div className="text-sm font-bold text-gray-800 flex items-center gap-1">
+                                  <CalendarIcon className="w-3.5 h-3.5 text-gray-500" />
+                                  {leave.start_date} ~ {leave.end_date}
+                                  <span className="text-xs font-normal text-gray-500 ml-1">({leave.total_days}일)</span>
+                                </div>
+                                {leave.reason && <div className="text-xs text-gray-500 mt-1 truncate max-w-[300px]">{leave.reason}</div>}
+                              </div>
+                              <div className="text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <ChevronRight className="w-5 h-5" />
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                      {selectedOriginalLeaveId && (
+                        <p className="text-xs text-blue-600 mt-2 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          {requestType === 'update' 
+                            ? "선택한 연차 정보가 적용되었습니다. 내용을 수정 후 결재를 상신하세요."
+                            : "선택한 연차를 취소합니다. 아래에 취소 사유를 입력해주세요."
+                          }
+                        </p>
+                      )}
+                    </>
                   )}
                 </div>
               )}
@@ -827,7 +936,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
             {!isViewMode && (
               <button 
                 type="submit" 
-                // ⭐️ [NEW] 버튼 비활성화 조건 적용
                 disabled={isSubmitDisabled} 
                 className="px-5 py-2.5 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 shadow-md transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-400"
               >

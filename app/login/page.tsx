@@ -1,11 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import Image from "next/image"; // 이미지 컴포넌트 추가
+import Image from "next/image"; 
 import { login, signup } from "./actions";
 import { Loader2, User, Lock, Mail, Building, IdCard, ChevronDown } from "lucide-react";
 
-// 부서 및 직급 목록 정의
 const DEPARTMENTS = ["CEO", "대외협력팀", "소원사업팀", "경영지원팀"];
 const POSITIONS = ["간사", "대리", "과장", "팀장", "사무총장"];
 
@@ -28,7 +27,6 @@ export default function LoginPage() {
         else setMessage("가입 성공! 이메일을 확인해주세요 (혹은 자동 로그인됩니다).");
       }
     } catch (e) {
-      // 리다이렉트 에러 무시 처리
       const errStr = String(e);
       if (errStr.includes("NEXT_REDIRECT")) return;
       setMessage("오류가 발생했습니다.");
@@ -41,10 +39,9 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-gray-100">
         
-        {/* 헤더: 로고 적용을 위해 흰색 배경으로 변경 */}
+        {/* 헤더 */}
         <div className="bg-white p-8 pb-6 text-center border-b border-gray-100">
           <div className="flex justify-center mb-4">
-            {/* 로고 이미지 배치 (public/logo.png) */}
             <div className="relative w-48 h-16">
               <Image 
                 src="/logo.png" 
@@ -55,7 +52,6 @@ export default function LoginPage() {
               />
             </div>
           </div>
-          {/* 텍스트 색상을 로고와 어울리는 짙은 남색으로 변경 */}
           <h1 className="text-xl font-bold text-blue-900">근태 관리 시스템</h1>
           <p className="text-gray-500 text-sm mt-2">
             {isLogin ? "Make-A-Wish Korea 임직원 전용" : "새로운 계정을 생성합니다"}
@@ -64,7 +60,6 @@ export default function LoginPage() {
 
         {/* 폼 영역 */}
         <div className="p-8 pt-6">
-          {/* 탭 전환 */}
           <div className="flex mb-6 bg-gray-100 p-1 rounded-lg">
             <button
               onClick={() => setIsLogin(true)}
@@ -95,7 +90,8 @@ export default function LoginPage() {
                   type="email"
                   required
                   placeholder="user@makeawish.or.kr"
-                  className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all"
+                  // ⭐️ text-gray-900 추가 (입력 텍스트 진하게)
+                  className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all placeholder:text-gray-400"
                 />
               </div>
             </div>
@@ -110,7 +106,8 @@ export default function LoginPage() {
                   type="password"
                   required
                   placeholder="••••••••"
-                  className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all"
+                  // ⭐️ text-gray-900 추가
+                  className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all placeholder:text-gray-400"
                 />
               </div>
             </div>
@@ -129,7 +126,8 @@ export default function LoginPage() {
                       type="text"
                       required={!isLogin}
                       placeholder="홍길동"
-                      className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all"
+                      // ⭐️ text-gray-900 추가
+                      className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all placeholder:text-gray-400"
                     />
                   </div>
                 </div>
@@ -143,7 +141,8 @@ export default function LoginPage() {
                         name="department"
                         required={!isLogin}
                         defaultValue=""
-                        className="w-full pl-10 pr-8 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all appearance-none cursor-pointer text-gray-700"
+                        // ⭐️ text-gray-900 추가
+                        className="w-full pl-10 pr-8 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all appearance-none cursor-pointer"
                       >
                         <option value="" disabled>선택</option>
                         {DEPARTMENTS.map((dept) => (
@@ -162,7 +161,8 @@ export default function LoginPage() {
                         name="position"
                         required={!isLogin}
                         defaultValue=""
-                        className="w-full pl-10 pr-8 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all appearance-none cursor-pointer text-gray-700"
+                        // ⭐️ text-gray-900 추가
+                        className="w-full pl-10 pr-8 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all appearance-none cursor-pointer"
                       >
                         <option value="" disabled>선택</option>
                         {POSITIONS.map((pos) => (

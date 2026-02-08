@@ -15,56 +15,37 @@ export default function DashboardWidgets() {
 
   useEffect(() => {
     async function fetchData() {
-      const res = await getDashboardData();
-      
-      // 공휴일과 직원 휴가를 합쳐서 날짜순 정렬
-      const mergedEvents = [
-        ...res.holidays.map((h: any) => ({ ...h, type: 'holiday' })),
-        ...res.upcomingLeaves.map((l: any) => ({ ...l, type: 'leave' }))
-      ].sort((a, b) => {
-        const dateA = a.date || a.start_date;
-        const dateB = b.date || b.start_date;
-        return dateA.localeCompare(dateB);
-      }).slice(0, 10); // 데이터는 넉넉히 가져오되 스크롤로 보여줌
+      try {
+        const res = await getDashboardData();
+        
+        // 공휴일과 직원 휴가를 합쳐서 날짜순 정렬
+        const mergedEvents = [
+          ...res.holidays.map((h: any) => ({ ...h, type: 'holiday', date: h.date })),
+          ...res.upcomingLeaves.map((l: any) => ({ ...l, type: 'leave', date: l.start_date }))
+        ].sort((a, b) => a.date.localeCompare(b.date))
+         .slice(0, 10); // UI에는 10개까지만 표시
 
-      setData({
-        todayLeaves: res.todayLeaves,
-        myNextLeave: res.myNextLeave,
-        upcomingEvents: mergedEvents
-      });
-      setLoading(false);
+        setData({
+          todayLeaves: res.todayLeaves,
+          myNextLeave: res.myNextLeave,
+          upcomingEvents: mergedEvents
+        });
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
     }
     fetchData();
   }, []);
 
-  // 휴가 타입에 따른 스타일 및 아이콘 반환 함수
+  // 휴가 타입 스타일
   const getLeaveStyle = (type: string) => {
-    if (type.includes("재택")) {
-      return { 
-        bg: "bg-green-50", border: "border-green-100", 
-        iconBg: "bg-green-200", iconText: "text-green-700", 
-        text: "text-green-600", badge: "text-green-700",
-        Icon: Home, label: "WFH" 
-      };
-    } else if (type.includes("외근") || type.includes("출장")) {
-      return { 
-        bg: "bg-blue-50", border: "border-blue-100", 
-        iconBg: "bg-blue-200", iconText: "text-blue-700", 
-        text: "text-blue-600", badge: "text-blue-700",
-        Icon: Plane, label: "Trip" 
-      };
-    } else {
-      // 기본 연차/반차 등
-      return { 
-        bg: "bg-red-50", border: "border-red-100", 
-        iconBg: "bg-red-200", iconText: "text-red-700", 
-        text: "text-red-500", badge: "text-red-600",
-        Icon: Palmtree, label: "OFF" 
-      };
-    }
+    if (type.includes("재택")) return { bg: "bg-green-50", border: "border-green-100", iconBg: "bg-green-200", iconText: "text-green-700", text: "text-green-600", badge: "text-green-700", Icon: Home, label: "WFH" };
+    if (type.includes("외근") || type.includes("출장")) return { bg: "bg-blue-50", border: "border-blue-100", iconBg: "bg-blue-200", iconText: "text-blue-700", text: "text-blue-600", badge: "text-blue-700", Icon: Plane, label: "Trip" };
+    return { bg: "bg-red-50", border: "border-red-100", iconBg: "bg-red-200", iconText: "text-red-700", text: "text-red-500", badge: "text-red-600", Icon: Palmtree, label: "OFF" };
   };
 
-  // D-Day 계산
   const getDday = (dateStr: string) => {
     const diff = differenceInCalendarDays(parseISO(dateStr), new Date());
     return diff === 0 ? "D-Day" : `D-${diff}`;
@@ -86,7 +67,7 @@ export default function DashboardWidgets() {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
       
-      {/* 위젯 1: 오늘의 휴가자 */}
+      {/* 1. 오늘의 휴가자 */}
       <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col h-[340px]">
         <div className="flex justify-between items-start mb-4 shrink-0">
           <h3 className="font-bold text-gray-800 flex items-center gap-2">
@@ -98,7 +79,6 @@ export default function DashboardWidgets() {
           </span>
         </div>
         
-        {/* min-h-0 추가: 내부 스크롤이 부모 높이를 넘지 않도록 제한 */}
         <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar space-y-3 min-h-0">
           {data.todayLeaves.length > 0 ? (
             data.todayLeaves.map((leave: any) => {
@@ -108,11 +88,11 @@ export default function DashboardWidgets() {
                 <div key={leave.id} className={`flex items-center justify-between p-3 rounded-lg border ${style.bg} ${style.border}`}>
                   <div className="flex items-center gap-3">
                     <div className={`w-8 h-8 rounded-full ${style.iconBg} flex items-center justify-center ${style.iconText} font-bold text-xs`}>
-                      {leave.profiles.name[0]}
+                      {leave.profiles?.name?.[0] || '?'}
                     </div>
                     <div>
                       <div className="text-sm font-bold text-gray-800">
-                        {leave.profiles.name} <span className="text-xs font-normal text-gray-500">{leave.profiles.position}</span>
+                        {leave.profiles?.name} <span className="text-xs font-normal text-gray-500">{leave.profiles?.position}</span>
                       </div>
                       <div className={`text-xs ${style.text} font-medium`}>
                         {leave.leave_type}
@@ -134,17 +114,16 @@ export default function DashboardWidgets() {
         </div>
       </div>
 
-      {/* 위젯 2: 주요 일정 & D-Day */}
+      {/* 2. 주요 일정 & D-Day */}
       <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col h-[340px]">
         <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2 shrink-0">
           <CalendarHeart className="w-5 h-5 text-pink-500" />
           다가오는 주요 일정
         </h3>
 
-        {/* min-h-0 추가: Flex 자식이 부모 높이를 뚫고 나가는 현상 방지 */}
         <div className="flex-1 flex flex-col min-h-0">
           
-          {/* D-Day 카드 (고정 높이) */}
+          {/* D-Day 카드 */}
           <div className="mb-4 bg-gradient-to-r from-purple-500 to-indigo-600 rounded-lg p-4 text-white shadow-md relative overflow-hidden group shrink-0">
             <div className="absolute right-0 top-0 opacity-10 transform translate-x-2 -translate-y-2 group-hover:scale-110 transition-transform">
               <Plane className="w-24 h-24" />
@@ -171,30 +150,29 @@ export default function DashboardWidgets() {
             </div>
           </div>
 
-          {/* 리스트 (남은 공간 차지 + 스크롤) */}
+          {/* 리스트 */}
           <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar divide-y divide-gray-100">
             {data.upcomingEvents.length > 0 ? (
               data.upcomingEvents.map((event: any, idx: number) => {
-                const dateStr = event.date || event.start_date;
                 const isHoliday = event.type === 'holiday';
-                const dDay = getDday(dateStr);
+                const dDay = getDday(event.date);
 
                 return (
                   <div key={idx} className="py-3 flex items-center gap-3">
                     <div className="w-10 text-center shrink-0">
                       <div className="text-[10px] text-gray-400 font-bold uppercase">
-                        {format(parseISO(dateStr), "MMM")}
+                        {format(parseISO(event.date), "MMM")}
                       </div>
                       <div className={`text-lg font-bold leading-none ${isHoliday ? 'text-red-500' : 'text-gray-800'}`}>
-                        {format(parseISO(dateStr), "dd")}
+                        {format(parseISO(event.date), "dd")}
                       </div>
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className={`text-sm font-bold truncate ${isHoliday ? 'text-gray-700' : 'text-gray-800'}`}>
-                        {event.title || `${event.profiles.name}님 ${event.leave_type}`}
+                        {event.title || `${event.profiles?.name}님 ${event.leave_type}`}
                       </div>
                       <div className="text-xs text-gray-400 truncate">
-                        {isHoliday ? "공휴일" : `${event.profiles.department} • ${event.leave_type}`}
+                        {isHoliday ? "공휴일" : `${event.profiles?.department} • ${event.leave_type}`}
                       </div>
                     </div>
                     <div className={`text-xs font-bold px-2 py-1 rounded shrink-0 ${

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/utils/supabase/client"; 
 import { useRouter } from "next/navigation";
-import { X, Clock, CheckCircle2, AlertCircle, XCircle, Filter, ArrowRight, Calculator, Loader2, Trash2, FileText, FilePenLine, FileX2 } from "lucide-react";
+import { X, Clock, CheckCircle2, AlertCircle, XCircle, Filter, ArrowRight, Calculator, Loader2, Trash2, FileText, FilePenLine, FileX2, History, ChevronRight } from "lucide-react";
 import OvertimeApplicationModal from "./OvertimeApplicationModal";
 import { deleteOvertimeRequest } from "@/app/actions/overtime"; 
 
@@ -28,12 +28,19 @@ interface OvertimeRequest {
   reason: string;
   status: string;
   created_at: string;
-  request_type?: string; // ⭐️ [NEW] 신청 유형 필드 추가
+  request_type?: string; 
+  original_overtime_request_id?: string; // ⭐️ 그룹화를 위한 필드 추가
+}
+
+// ⭐️ 그룹화된 데이터 타입 정의
+interface WorkGroup {
+  latest: OvertimeRequest; // 화면에 보여줄 최종 상태
+  count: number;           // 이력 건수
 }
 
 export default function WorkHistoryModal({ isOpen, onClose }: WorkHistoryModalProps) {
   const [activeTab, setActiveTab] = useState("all");
-  const [requests, setRequests] = useState<OvertimeRequest[]>([]);
+  const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]); // ⭐️ 그룹화된 상태 사용
   const [isLoading, setIsLoading] = useState(false);
 
   // 상세 보기 모달 상태
@@ -61,10 +68,58 @@ export default function WorkHistoryModal({ isOpen, onClose }: WorkHistoryModalPr
         .order("created_at", { ascending: false });
 
       if (!error && data) {
-        setRequests(data);
+        processData(data); // ⭐️ 데이터 가공 함수 호출
       }
     }
     setIsLoading(false);
+  };
+
+  // ⭐️ [핵심] 데이터를 그룹화하여 최종 상태만 남기는 함수
+  const processData = (data: OvertimeRequest[]) => {
+    // 1. ID 매핑 및 부모 추적 맵 생성
+    const itemMap = new Map<string, OvertimeRequest>();
+    const parentMap = new Map<string, string>();
+
+    data.forEach(item => {
+      itemMap.set(item.id, item);
+      if (item.original_overtime_request_id) {
+        parentMap.set(item.id, item.original_overtime_request_id);
+      }
+    });
+
+    // 2. 최상위 루트 ID를 찾는 재귀적 함수
+    const findRootId = (currentId: string): string => {
+      let pointer = currentId;
+      while (parentMap.has(pointer)) {
+        pointer = parentMap.get(pointer)!;
+        if (!itemMap.has(pointer)) break; // 데이터 무결성 보호
+      }
+      return pointer;
+    };
+
+    // 3. 그룹화 진행
+    const groups: Record<string, OvertimeRequest[]> = {};
+
+    data.forEach((item) => {
+      const rootId = findRootId(item.id);
+      if (!groups[rootId]) groups[rootId] = [];
+      groups[rootId].push(item);
+    });
+
+    // 4. 그룹별 정렬 (최신순) 및 구조화
+    const processed = Object.values(groups).map((groupList) => {
+      groupList.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      
+      return {
+        latest: groupList[0], // 가장 최신 상태
+        count: groupList.length // 이력 건수
+      };
+    });
+
+    // 5. 전체 목록 정렬 (최신 업데이트 순)
+    processed.sort((a, b) => new Date(b.latest.created_at).getTime() - new Date(a.latest.created_at).getTime());
+
+    setWorkGroups(processed);
   };
 
   const handleCancel = async (id: string) => {
@@ -77,8 +132,8 @@ export default function WorkHistoryModal({ isOpen, onClose }: WorkHistoryModalPr
       return;
     }
 
-    setRequests((prev) => prev.filter((item) => item.id !== id));
     alert("삭제되었습니다.");
+    fetchOvertimeHistory(); // ⭐️ 삭제 후 목록 재구성 (그룹 재계산 필요)
     router.refresh(); 
   };
 
@@ -87,10 +142,11 @@ export default function WorkHistoryModal({ isOpen, onClose }: WorkHistoryModalPr
     setIsDetailOpen(true);
   };
 
-  const filteredData = requests.filter(item => {
+  // ⭐️ 필터링 로직 수정 (그룹의 최신 상태 기준)
+  const filteredGroups = workGroups.filter(({ latest }) => {
     if (activeTab === "all") return true;
-    if (activeTab === "pending") return item.status === "pending";
-    if (activeTab === "approved") return item.status === "approved";
+    if (activeTab === "pending") return latest.status === "pending";
+    if (activeTab === "approved") return latest.status === "approved";
     return true;
   });
 
@@ -102,35 +158,23 @@ export default function WorkHistoryModal({ isOpen, onClose }: WorkHistoryModalPr
         return <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800"><AlertCircle className="w-3 h-3"/> 결재대기</span>;
       case "rejected":
         return <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800"><XCircle className="w-3 h-3"/> 반려됨</span>;
+      case "cancelled":
+        return <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600"><XCircle className="w-3 h-3"/> 취소됨</span>;
       default:
         return null;
     }
   };
 
-  // ⭐️ [NEW] 신청 유형 뱃지 렌더링 함수
   const renderRequestTypeBadge = (type?: string) => {
-    const safeType = type || 'create'; // 기본값: 신청
+    const safeType = type || 'create';
     switch (safeType) {
       case 'create':
-        return (
-          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
-            <FileText className="w-3 h-3" /> 신청
-          </span>
-        );
+        return <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200"><FileText className="w-3 h-3" /> 신청</span>;
       case 'update':
-        return (
-          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-200">
-            <FilePenLine className="w-3 h-3" /> 변경
-          </span>
-        );
+        return <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-200"><FilePenLine className="w-3 h-3" /> 변경</span>;
       case 'cancel':
-        return (
-          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-pink-100 text-pink-700 border border-pink-200">
-            <FileX2 className="w-3 h-3" /> 취소
-          </span>
-        );
-      default:
-        return null;
+        return <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-pink-100 text-pink-700 border border-pink-200"><FileX2 className="w-3 h-3" /> 취소</span>;
+      default: return null;
     }
   };
 
@@ -188,29 +232,36 @@ export default function WorkHistoryModal({ isOpen, onClose }: WorkHistoryModalPr
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {filteredData.length > 0 ? (
-                      filteredData.map((item) => {
-                        const hours = item.total_hours || 0;
-                        const rewardHours = item.recognized_hours || 0;
-                        const rewardDays = item.recognized_days || 0;
-                        const isHoliday = item.is_holiday;
+                    {filteredGroups.length > 0 ? (
+                      filteredGroups.map(({ latest, count }) => {
+                        const hours = latest.total_hours || 0;
+                        const rewardHours = latest.recognized_hours || 0;
+                        const rewardDays = latest.recognized_days || 0;
+                        const isHoliday = latest.is_holiday;
 
                         return (
                           <tr 
-                            key={item.id} 
-                            onClick={() => handleRowClick(item)} 
+                            key={latest.id} 
+                            onClick={() => handleRowClick(latest)} 
                             className="hover:bg-purple-50/50 transition-colors cursor-pointer group"
                           >
                             <td className="px-4 py-3">
-                              {/* ⭐️ [NEW] 유형 뱃지 표시 */}
                               <div className="flex items-center gap-2 mb-1">
-                                {renderRequestTypeBadge(item.request_type)}
-                                <span className="font-bold text-gray-800 text-sm">{item.work_date}</span>
+                                {renderRequestTypeBadge(latest.request_type)}
+                                <span className="font-bold text-gray-800 text-sm">{latest.work_date}</span>
+                                
+                                {/* ⭐️ 이력이 2건 이상일 때만 뱃지 표시 */}
+                                {count > 1 && (
+                                  <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 border border-gray-200" title="변경/취소 이력이 포함된 건입니다">
+                                    <History className="w-3 h-3" />
+                                    +{count - 1}
+                                  </span>
+                                )}
                               </div>
-                              <div className="text-xs text-gray-400 mt-0.5">{item.title}</div>
+                              <div className="text-xs text-gray-400 mt-0.5">{latest.title}</div>
                             </td>
                             <td className="px-4 py-3 text-sm text-gray-600">
-                              <div className="font-medium">{item.start_time} ~ {item.end_time}</div>
+                              <div className="font-medium">{latest.start_time} ~ {latest.end_time}</div>
                               <div className="text-xs text-gray-400 mt-0.5">총 {hours}시간 근무</div>
                             </td>
                             
@@ -227,7 +278,7 @@ export default function WorkHistoryModal({ isOpen, onClose }: WorkHistoryModalPr
                                 <div className="flex items-center gap-2">
                                   <ArrowRight className="w-3 h-3 text-purple-400" />
                                   <span className={`text-sm font-bold px-2 py-0.5 rounded border ${
-                                      item.request_type === 'cancel' 
+                                      latest.request_type === 'cancel' 
                                       ? 'bg-red-50 text-red-600 border-red-200 line-through decoration-red-400' 
                                       : 'bg-purple-100 text-purple-700 border-purple-200'
                                   }`}>
@@ -237,25 +288,29 @@ export default function WorkHistoryModal({ isOpen, onClose }: WorkHistoryModalPr
                               </div>
                             </td>
 
-                            <td className="px-4 py-3 text-sm text-gray-500 max-w-[150px] truncate" title={item.reason}>
-                              {item.reason}
+                            <td className="px-4 py-3 text-sm text-gray-500 max-w-[150px] truncate" title={latest.reason}>
+                              {latest.reason}
                             </td>
                             <td className="px-4 py-3 text-center">
-                              {renderStatusBadge(item.status)}
+                              {renderStatusBadge(latest.status)}
                             </td>
                             <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                              {item.status === 'pending' && (
+                              {latest.status === 'pending' && (
                                 <button 
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleCancel(item.id);
+                                    handleCancel(latest.id);
                                   }}
                                   className="text-xs text-red-500 hover:text-red-700 flex items-center justify-center gap-1 mx-auto font-medium transition-colors p-2 hover:bg-red-50 rounded"
                                 >
                                   <Trash2 className="w-3 h-3" /> 삭제
                                 </button>
                               )}
-                              {item.status !== 'pending' && <span className="text-xs text-gray-300">-</span>}
+                              {latest.status !== 'pending' && (
+                                <div className="text-gray-300 flex justify-center">
+                                    <ChevronRight className="w-4 h-4" />
+                                </div>
+                              )}
                             </td>
                           </tr>
                         );

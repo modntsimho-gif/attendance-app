@@ -41,6 +41,10 @@ interface OvertimeRecord {
   plan_details?: any;
   is_holiday: boolean;
   created_at: string;
+  status: string;
+  request_type?: string;
+  original_overtime_request_id?: string;
+  used_hours?: number;
 }
 
 export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, initialData }: OvertimeApplicationModalProps) {
@@ -63,6 +67,9 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
   const [requestType, setRequestType] = useState("create");
   const [approvedOvertimes, setApprovedOvertimes] = useState<OvertimeRecord[]>([]);
   const [selectedOriginalOtId, setSelectedOriginalOtId] = useState<string>("");
+  
+  // 조회 모드용 원본 초과근무 데이터 State
+  const [originalOtForView, setOriginalOtForView] = useState<OvertimeRecord | null>(null);
 
   const [planRows, setPlanRows] = useState([{ id: 1, startTime: "", endTime: "", content: "" }]);
   
@@ -78,6 +85,7 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
   const [recognizedHours, setRecognizedHours] = useState(0); 
   const [recognizedDays, setRecognizedDays] = useState("0.00"); 
 
+  // 1. 초기화 및 데이터 로드 (모달 열릴 때)
   useEffect(() => {
     if (isOpen) {
       isSubmittingRef.current = false;
@@ -94,7 +102,24 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
         setReason(initialData.reason || "");
         
         setRequestType(initialData.request_type || "create");
-        setSelectedOriginalOtId(initialData.original_overtime_request_id || "");
+        
+        // 원본 데이터 불러오기 로직
+        if (initialData.original_overtime_request_id) {
+          setSelectedOriginalOtId(initialData.original_overtime_request_id);
+          
+          const fetchOriginalOt = async () => {
+            const { data } = await supabase
+              .from("overtime_requests")
+              .select("*")
+              .eq("id", initialData.original_overtime_request_id)
+              .maybeSingle();
+            
+            if (data) {
+              setOriginalOtForView(data);
+            }
+          };
+          fetchOriginalOt();
+        }
 
         if (initialData.plan_details) {
           try {
@@ -142,6 +167,7 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
         setRequestType("create");
         setSelectedOriginalOtId("");
         setApprovedOvertimes([]);
+        setOriginalOtForView(null);
       }
     } else {
       setIsApproverSelectOpen(false);
@@ -150,31 +176,85 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
     }
   }, [isOpen, isViewMode, initialData]);
 
+  // ⭐️ 2. 변경/취소 시 '유효한(살아있는)' 승인 내역만 불러오는 로직 (수정됨)
   useEffect(() => {
-    if (isViewMode || !isOpen) return;
-
-    if (requestType === 'update' || requestType === 'cancel') {
-      const fetchApprovedOvertimes = async () => {
+    if (!isViewMode && (requestType === 'update' || requestType === 'cancel') && isOpen) {
+      
+      const fetchValidOvertimes = async () => {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
 
+        // 1. 모든 내역 가져오기 (히스토리 추적용)
         const { data } = await supabase
           .from("overtime_requests")
           .select("*")
           .eq("user_id", user.id)
-          .eq("status", "approved")
-          .or("used_hours.is.null,used_hours.eq.0")
-          .order("work_date", { ascending: false });
+          .order("created_at", { ascending: false });
         
         if (data) {
-          setApprovedOvertimes(data);
+          // 2. 그룹화 로직
+          const itemMap = new Map<string, OvertimeRecord>();
+          const parentMap = new Map<string, string>();
+
+          data.forEach((item: any) => {
+            itemMap.set(item.id, item);
+            if (item.original_overtime_request_id) {
+              parentMap.set(item.id, item.original_overtime_request_id);
+            }
+          });
+
+          // 루트 ID 찾기 함수
+          const findRootId = (currentId: string): string => {
+            let pointer = currentId;
+            while (parentMap.has(pointer)) {
+              pointer = parentMap.get(pointer)!;
+              if (!itemMap.has(pointer)) break;
+            }
+            return pointer;
+          };
+
+          // 그룹핑
+          const groups: Record<string, OvertimeRecord[]> = {};
+          data.forEach((item: any) => {
+            const rootId = findRootId(item.id);
+            if (!groups[rootId]) groups[rootId] = [];
+            groups[rootId].push(item);
+          });
+
+          // 3. 유효한(살아있는) 승인 건만 필터링
+          const validOvertimes: OvertimeRecord[] = [];
+
+          Object.values(groups).forEach((group) => {
+            // 최신순 정렬
+            group.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+            const latest = group[0]; // 최종 상태
+
+            // ✅ 조건: 
+            // 1. 최종 상태가 '승인'이어야 함
+            // 2. 최종 요청 타입이 '취소'가 아니어야 함
+            // 3. 아직 사용하지 않은 시간이어야 함 (used_hours가 0이거나 null)
+            const isUnused = (latest.used_hours || 0) === 0;
+
+            if (
+              latest.status === 'approved' && 
+              latest.request_type !== 'cancel' &&
+              isUnused 
+            ) {
+              validOvertimes.push(latest);
+            }
+          });
+
+          setApprovedOvertimes(validOvertimes);
         }
       };
-      fetchApprovedOvertimes();
+
+      fetchValidOvertimes();
       
+      // 입력 폼 초기화
       setSelectedOriginalOtId("");
       
     } else if (requestType === 'create') {
+      // 신청 탭으로 돌아오면 초기화
       setReason("");
       setSelectedOriginalOtId("");
       setApprovedOvertimes([]);
@@ -378,7 +458,6 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
 
   const isFormDisabled = isViewMode || requestType === 'cancel';
   
-  // ⭐️ [NEW] 버튼 비활성화 조건 계산
   const isOriginalRequired = requestType === 'update' || requestType === 'cancel';
   const isOriginalMissing = isOriginalRequired && !selectedOriginalOtId;
   const isSubmitDisabled = isSubmitting || approvers.length === 0 || isOriginalMissing;
@@ -545,55 +624,94 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
               </div>
 
               {/* 변경/취소 대상 선택 섹션 */}
-              {!isViewMode && (requestType === 'update' || requestType === 'cancel') && (
+              {(requestType === 'update' || requestType === 'cancel') && (
                 <div className="animate-in fade-in slide-in-from-top-2">
                   <label className="block text-sm font-bold text-gray-700 mb-2">
-                    {requestType === 'update' ? "수정할 초과근무 선택" : "취소할 초과근무 선택"} (미사용 건만 표시)
+                    {requestType === 'update' ? "수정 대상 초과근무" : "취소 대상 초과근무"}
+                    {isViewMode && <span className="text-xs font-normal text-gray-500 ml-2">(원본 데이터)</span>}
                   </label>
-                  <div className="border border-gray-200 rounded-lg bg-gray-50 p-4 max-h-60 overflow-y-auto space-y-2">
-                    {approvedOvertimes.length === 0 ? (
-                      <div className="text-center text-sm text-gray-400 py-4">
-                        선택 가능한(미사용) 승인된 초과근무 내역이 없습니다.
-                      </div>
-                    ) : (
-                      approvedOvertimes.map((ot) => (
-                        <div 
-                          key={ot.id}
-                          onClick={() => handleSelectOriginalOt(ot)}
-                          className={`p-3 rounded-lg border cursor-pointer transition-all flex items-center justify-between group ${
-                            selectedOriginalOtId === ot.id 
-                              ? "bg-blue-100 border-blue-500 ring-1 ring-blue-500" 
-                              : "bg-white border-gray-200 hover:border-blue-300 hover:shadow-sm"
-                          }`}
-                        >
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="text-xs font-bold bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{ot.title}</span>
-                              <span className="text-xs text-gray-400">{new Date(ot.created_at).toLocaleDateString()} 신청</span>
-                            </div>
-                            <div className="text-sm font-bold text-gray-800 flex items-center gap-1">
-                              <CalendarIcon className="w-3.5 h-3.5 text-gray-500" />
-                              {ot.work_date}
-                              <span className="text-gray-300">|</span>
-                              {ot.start_time?.slice(0,5)} ~ {ot.end_time?.slice(0,5)}
-                              <span className="text-xs font-normal text-gray-500 ml-1">({ot.recognized_hours}h 인정)</span>
-                            </div>
+
+                  {/* 조회 모드: 원본 데이터 단일 카드 표시 */}
+                  {isViewMode ? (
+                    originalOtForView ? (
+                      <div className="p-4 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-between">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs font-bold bg-white border border-gray-200 text-gray-600 px-1.5 py-0.5 rounded">
+                              {originalOtForView.title}
+                            </span>
+                            <span className="text-xs text-gray-400">
+                              {new Date(originalOtForView.created_at).toLocaleDateString()} 신청분
+                            </span>
                           </div>
-                          <div className="text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <ChevronRight className="w-5 h-5" />
+                          <div className="text-sm font-bold text-gray-800 flex items-center gap-1">
+                            <CalendarIcon className="w-3.5 h-3.5 text-gray-500" />
+                            {originalOtForView.work_date}
+                            <span className="text-gray-300">|</span>
+                            {originalOtForView.start_time?.slice(0,5)} ~ {originalOtForView.end_time?.slice(0,5)}
+                            <span className="text-xs font-normal text-gray-500 ml-1">
+                              ({originalOtForView.recognized_hours}h 인정)
+                            </span>
                           </div>
                         </div>
-                      ))
-                    )}
-                  </div>
-                  {selectedOriginalOtId && (
-                    <p className="text-xs text-blue-600 mt-2 flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3" />
-                      {requestType === 'update' 
-                        ? "선택한 정보가 적용되었습니다. 내용을 수정 후 결재를 상신하세요."
-                        : "선택한 내역을 취소합니다. 아래에 취소 사유를 입력해주세요."
-                      }
-                    </p>
+                        <div className="text-xs font-bold text-gray-400 bg-white px-2 py-1 rounded border">
+                          원본
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-gray-400 p-3 border rounded bg-gray-50">
+                        원본 초과근무 정보를 불러올 수 없습니다.
+                      </div>
+                    )
+                  ) : (
+                    /* 작성 모드: 기존 선택 리스트 표시 */
+                    <>
+                      <div className="border border-gray-200 rounded-lg bg-gray-50 p-4 max-h-60 overflow-y-auto space-y-2">
+                        {approvedOvertimes.length === 0 ? (
+                          <div className="text-center text-sm text-gray-400 py-4">
+                            선택 가능한(미사용) 승인된 초과근무 내역이 없습니다.
+                          </div>
+                        ) : (
+                          approvedOvertimes.map((ot) => (
+                            <div 
+                              key={ot.id}
+                              onClick={() => handleSelectOriginalOt(ot)}
+                              className={`p-3 rounded-lg border cursor-pointer transition-all flex items-center justify-between group ${
+                                selectedOriginalOtId === ot.id 
+                                  ? "bg-blue-100 border-blue-500 ring-1 ring-blue-500" 
+                                  : "bg-white border-gray-200 hover:border-blue-300 hover:shadow-sm"
+                              }`}
+                            >
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-xs font-bold bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{ot.title}</span>
+                                  <span className="text-xs text-gray-400">{new Date(ot.created_at).toLocaleDateString()} 신청</span>
+                                </div>
+                                <div className="text-sm font-bold text-gray-800 flex items-center gap-1">
+                                  <CalendarIcon className="w-3.5 h-3.5 text-gray-500" />
+                                  {ot.work_date}
+                                  <span className="text-gray-300">|</span>
+                                  {ot.start_time?.slice(0,5)} ~ {ot.end_time?.slice(0,5)}
+                                  <span className="text-xs font-normal text-gray-500 ml-1">({ot.recognized_hours}h 인정)</span>
+                                </div>
+                              </div>
+                              <div className="text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <ChevronRight className="w-5 h-5" />
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                      {selectedOriginalOtId && (
+                        <p className="text-xs text-blue-600 mt-2 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          {requestType === 'update' 
+                            ? "선택한 정보가 적용되었습니다. 내용을 수정 후 결재를 상신하세요."
+                            : "선택한 내역을 취소합니다. 아래에 취소 사유를 입력해주세요."
+                          }
+                        </p>
+                      )}
+                    </>
                   )}
                 </div>
               )}
@@ -749,7 +867,6 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
             {!isViewMode && (
               <button 
                 type="submit" 
-                // ⭐️ [NEW] 버튼 비활성화 조건 적용
                 disabled={isSubmitDisabled} 
                 className="px-6 py-2.5 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 shadow-md disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-400"
               >

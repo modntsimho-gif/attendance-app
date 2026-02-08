@@ -207,8 +207,10 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
       });
 
       if (error) {
-        console.error("결재 처리 실패:", error);
-        throw error;
+        // ⭐️ 에러 내용을 자세히 보기 위해 수정
+        console.error("결재 처리 실패 상세:", JSON.stringify(error, null, 2));
+        alert(`처리 실패: ${error.message || "알 수 없는 오류"}`);
+        return; // throw error 대신 return으로 중단
       }
 
       alert(status === "approved" ? "승인 처리되었습니다." : "반려 처리되었습니다.");
@@ -217,9 +219,9 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
       if (selectedRequest?.id === item.id) setSelectedRequest(null);
       router.refresh();
 
-    } catch (e) {
+    } catch (e: any) {
       console.error("에러 발생:", e);
-      alert("처리 중 오류가 발생했습니다. 관리자에게 문의하세요.");
+      alert(`시스템 오류: ${e.message}`);
     }
   };
 
