@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/utils/supabase/client";
-import { X, Calendar, CheckCircle2, AlertCircle, XCircle, Filter, Loader2, Trash2, FileText, FilePenLine, FileX2, History, ChevronRight } from "lucide-react";
+import { X, Calendar, CheckCircle2, AlertCircle, XCircle, Filter, Loader2, Trash2, FileText, FilePenLine, FileX2, History, ChevronRight, Clock } from "lucide-react";
 import { useRouter } from "next/navigation";
 import LeaveApplicationModal from "./LeaveApplicationModal"; 
 
@@ -65,11 +65,8 @@ export default function LeaveHistoryModal({ isOpen, onClose, onDelete }: LeaveHi
     setIsLoading(false);
   };
 
-  // ⭐️ [수정됨] 연결된 모든 이력을 추적하여 하나의 그룹으로 묶는 로직
   const processData = (data: LeaveRequest[]) => {
-    // 1. 빠른 조회를 위한 ID -> Item 맵 생성
     const itemMap = new Map<string, LeaveRequest>();
-    // 2. 부모 관계 추적을 위한 맵 (Child ID -> Parent ID)
     const parentMap = new Map<string, string>();
 
     data.forEach(item => {
@@ -79,19 +76,15 @@ export default function LeaveHistoryModal({ isOpen, onClose, onDelete }: LeaveHi
       }
     });
 
-    // 3. 최상위 루트 ID를 찾는 재귀(반복문) 함수
     const findRootId = (currentId: string): string => {
       let pointer = currentId;
-      // 부모가 있는 동안 계속 거슬러 올라감
       while (parentMap.has(pointer)) {
         pointer = parentMap.get(pointer)!;
-        // 만약 데이터 무결성 문제로 부모 ID가 현재 리스트에 없다면 루프 종료
         if (!itemMap.has(pointer)) break; 
       }
       return pointer;
     };
 
-    // 4. 그룹화 진행
     const groups: Record<string, LeaveRequest[]> = {};
 
     data.forEach((item) => {
@@ -103,24 +96,22 @@ export default function LeaveHistoryModal({ isOpen, onClose, onDelete }: LeaveHi
       groups[rootId].push(item);
     });
 
-    // 5. 그룹별 정렬 및 포맷팅
     const processed = Object.values(groups).map((groupList) => {
-      // 그룹 내 시간순 정렬 (내림차순: 최신이 [0])
       groupList.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
       
       return {
-        latest: groupList[0], // 가장 최신 상태 (예: 취소)
-        count: groupList.length // 전체 이력 수 (예: 신청+변경+취소 = 3)
+        latest: groupList[0], 
+        count: groupList.length 
       };
     });
 
-    // 6. 최종 목록 정렬 (최신 업데이트 순)
     processed.sort((a, b) => new Date(b.latest.created_at).getTime() - new Date(a.latest.created_at).getTime());
 
     setLeaveGroups(processed);
   };
 
-  const handleCancel = async (id: string) => {
+  const handleCancel = async (id: string, e?: React.MouseEvent) => {
+    if(e) e.stopPropagation();
     if (!confirm("정말 이 신청을 삭제하시겠습니까? 복구할 수 없습니다.")) return;
 
     const { error } = await supabase
@@ -195,8 +186,9 @@ export default function LeaveHistoryModal({ isOpen, onClose, onDelete }: LeaveHi
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
         <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden">
           
+          {/* 헤더 */}
           <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-            <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+            <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
               <Calendar className="w-5 h-5 text-blue-600" />
               연차 사용 및 결재 내역
             </h2>
@@ -205,112 +197,169 @@ export default function LeaveHistoryModal({ isOpen, onClose, onDelete }: LeaveHi
             </button>
           </div>
 
-          <div className="px-6 pt-4 pb-0 border-b border-gray-200">
-            <div className="flex gap-6">
-              <button onClick={() => setActiveTab("all")} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'all' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>전체 내역</button>
-              <button onClick={() => setActiveTab("pending")} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'pending' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>결재 진행중</button>
-              <button onClick={() => setActiveTab("approved")} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'approved' ? 'border-green-600 text-green-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>사용 완료 (승인)</button>
+          {/* 탭 버튼 */}
+          <div className="px-6 pt-4 pb-0 border-b border-gray-200 bg-white">
+            <div className="flex gap-6 overflow-x-auto">
+              <button onClick={() => setActiveTab("all")} className={`pb-3 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'all' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>전체 내역</button>
+              <button onClick={() => setActiveTab("pending")} className={`pb-3 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'pending' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>결재 진행중</button>
+              <button onClick={() => setActiveTab("approved")} className={`pb-3 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'approved' ? 'border-green-600 text-green-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>사용 완료 (승인)</button>
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-6 bg-gray-50/30">
-            <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden min-h-[300px]">
-              
-              {isLoading ? (
+          <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-gray-50/30">
+            {isLoading ? (
                 <div className="flex flex-col items-center justify-center h-[300px] text-gray-400">
                   <Loader2 className="w-8 h-8 animate-spin mb-2 text-blue-500" />
                   <p>데이터를 불러오는 중...</p>
                 </div>
-              ) : (
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200 text-xs text-gray-500 uppercase">
-                      <th className="px-4 py-3 font-semibold">최종 상태 / 종류 / 신청일</th>
-                      <th className="px-4 py-3 font-semibold">기간</th>
-                      <th className="px-4 py-3 font-semibold text-center">사용일수</th>
-                      <th className="px-4 py-3 font-semibold">사유</th>
-                      <th className="px-4 py-3 font-semibold text-center">결재 상태</th>
-                      <th className="px-4 py-3 font-semibold text-center">관리</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {filteredGroups.length > 0 ? (
-                      filteredGroups.map(({ latest, count }) => (
-                        <tr 
-                          key={latest.id} 
-                          onClick={() => handleRowClick(latest)} 
-                          className="hover:bg-blue-50/50 transition-colors cursor-pointer group"
-                        >
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-2 mb-1">
-                                {renderRequestTypeBadge(latest.request_type)}
-                                <span className="font-bold text-gray-800 text-sm">{latest.leave_type}</span>
-                                
-                                {/* ⭐️ 이력이 2건 이상일 때만 뱃지 표시 (신청+변경+취소 = 3건 -> +2) */}
-                                {count > 1 && (
-                                  <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 border border-gray-200" title="변경/취소 이력이 포함된 건입니다">
-                                    <History className="w-3 h-3" />
-                                    +{count - 1}
-                                  </span>
-                                )}
-                            </div>
-                            <div className="text-xs text-gray-400 mt-0.5">
-                              {new Date(latest.created_at).toLocaleDateString()} 
-                              {latest.request_type !== 'create' ? ' 업데이트' : ' 신청'}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-600">
-                            {latest.start_date} ~ {latest.end_date}
-                          </td>
-                          
-                          <td className="px-4 py-3 text-center">
-                            <span className={`text-xs font-bold px-2 py-1 rounded ${
-                                latest.request_type === 'cancel' 
-                                ? 'bg-red-50 text-red-600 line-through decoration-red-400' 
-                                : 'bg-gray-100 text-gray-700'
-                            }`}>
-                              {latest.total_leave_days ?? calculateDaysFallback(latest.start_date, latest.end_date, latest.leave_type)}일
-                            </span>
-                          </td>
+            ) : filteredGroups.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-[200px] text-gray-400 gap-2">
+                    <Filter className="w-8 h-8 opacity-20" />
+                    <span>해당하는 내역이 없습니다.</span>
+                </div>
+            ) : (
+                <>
+                {/* ⭐️ [Mobile] 카드 리스트 뷰 (md:hidden) */}
+                <div className="md:hidden space-y-3">
+                  {filteredGroups.map(({ latest, count }) => (
+                    <div 
+                      key={latest.id}
+                      onClick={() => handleRowClick(latest)}
+                      className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm active:bg-gray-50 transition-colors"
+                    >
+                      {/* 상단: 뱃지 및 상태 */}
+                      <div className="flex justify-between items-start mb-3">
+                        <div className="flex items-center gap-2">
+                           {renderRequestTypeBadge(latest.request_type)}
+                           {count > 1 && (
+                              <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 border border-gray-200 font-medium">
+                                <History className="w-3 h-3" />
+                                +{count - 1}
+                              </span>
+                           )}
+                        </div>
+                        {renderStatusBadge(latest.status)}
+                      </div>
 
-                          <td className="px-4 py-3 text-sm text-gray-500 max-w-[150px] truncate" title={latest.reason}>
-                            {latest.reason}
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            {renderStatusBadge(latest.status)}
-                          </td>
-                          
-                          <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                            {latest.status === 'pending' && (
-                              <button 
-                                onClick={() => handleCancel(latest.id)}
-                                className="text-xs text-red-500 hover:text-red-700 flex items-center justify-center gap-1 mx-auto font-medium transition-colors p-2 hover:bg-red-50 rounded"
-                              >
-                                <Trash2 className="w-3 h-3" /> 삭제
-                              </button>
+                      {/* 중단: 핵심 정보 (타이틀, 날짜) */}
+                      <div className="mb-3">
+                        <div className="text-base font-bold text-gray-900 mb-1">
+                          {latest.leave_type}
+                          <span className="ml-2 text-sm font-normal text-gray-600">
+                             ({latest.total_leave_days ?? calculateDaysFallback(latest.start_date, latest.end_date, latest.leave_type)}일)
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-sm text-gray-700 font-medium bg-gray-50 p-2 rounded-lg">
+                           <Calendar className="w-4 h-4 text-gray-400" />
+                           {latest.start_date} ~ {latest.end_date}
+                        </div>
+                      </div>
+
+                      {/* 하단: 사유 및 액션 */}
+                      <div className="flex justify-between items-end border-t border-gray-100 pt-3">
+                        <div className="flex flex-col gap-1">
+                            <span className="text-xs text-gray-400 flex items-center gap-1">
+                                <Clock className="w-3 h-3" />
+                                {new Date(latest.created_at).toLocaleDateString()} 신청
+                            </span>
+                            {latest.reason && (
+                                <p className="text-xs text-gray-500 truncate max-w-[200px]">
+                                    {latest.reason}
+                                </p>
                             )}
-                            {latest.status !== 'pending' && (
-                              <div className="text-gray-300 flex justify-center">
-                                  <ChevronRight className="w-4 h-4" />
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={6} className="px-4 py-12 text-center text-gray-400">
-                          <div className="flex flex-col items-center gap-2">
-                            <Filter className="w-8 h-8 opacity-20" />
-                            <span>해당하는 내역이 없습니다.</span>
-                          </div>
-                        </td>
+                        </div>
+                        
+                        {latest.status === 'pending' ? (
+                           <button 
+                             onClick={(e) => handleCancel(latest.id, e)}
+                             className="text-xs bg-white border border-red-200 text-red-600 px-3 py-1.5 rounded-lg font-bold hover:bg-red-50 flex items-center gap-1 shadow-sm"
+                           >
+                             <Trash2 className="w-3 h-3" /> 삭제
+                           </button>
+                        ) : (
+                           <ChevronRight className="w-5 h-5 text-gray-300" />
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* ⭐️ [Desktop] 테이블 뷰 (hidden md:table) */}
+                <div className="hidden md:block bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden min-h-[300px]">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200 text-xs text-gray-500 uppercase">
+                        <th className="px-4 py-3 font-semibold">최종 상태 / 종류 / 신청일</th>
+                        <th className="px-4 py-3 font-semibold">기간</th>
+                        <th className="px-4 py-3 font-semibold text-center">사용일수</th>
+                        <th className="px-4 py-3 font-semibold">사유</th>
+                        <th className="px-4 py-3 font-semibold text-center">결재 상태</th>
+                        <th className="px-4 py-3 font-semibold text-center">관리</th>
                       </tr>
-                    )}
-                  </tbody>
-                </table>
-              )}
-            </div>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                        {filteredGroups.map(({ latest, count }) => (
+                          <tr 
+                            key={latest.id} 
+                            onClick={() => handleRowClick(latest)} 
+                            className="hover:bg-blue-50/50 transition-colors cursor-pointer group"
+                          >
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2 mb-1">
+                                  {renderRequestTypeBadge(latest.request_type)}
+                                  <span className="font-bold text-gray-800 text-sm">{latest.leave_type}</span>
+                                  {count > 1 && (
+                                    <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 border border-gray-200" title="변경/취소 이력이 포함된 건입니다">
+                                      <History className="w-3 h-3" />
+                                      +{count - 1}
+                                    </span>
+                                  )}
+                              </div>
+                              <div className="text-xs text-gray-400 mt-0.5">
+                                {new Date(latest.created_at).toLocaleDateString()} 
+                                {latest.request_type !== 'create' ? ' 업데이트' : ' 신청'}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {latest.start_date} ~ {latest.end_date}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <span className={`text-xs font-bold px-2 py-1 rounded ${
+                                  latest.request_type === 'cancel' 
+                                  ? 'bg-red-50 text-red-600 line-through decoration-red-400' 
+                                  : 'bg-gray-100 text-gray-700'
+                              }`}>
+                                {latest.total_leave_days ?? calculateDaysFallback(latest.start_date, latest.end_date, latest.leave_type)}일
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-500 max-w-[150px] truncate" title={latest.reason}>
+                              {latest.reason}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              {renderStatusBadge(latest.status)}
+                            </td>
+                            <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                              {latest.status === 'pending' && (
+                                <button 
+                                  onClick={(e) => handleCancel(latest.id, e)}
+                                  className="text-xs text-red-500 hover:text-red-700 flex items-center justify-center gap-1 mx-auto font-medium transition-colors p-2 hover:bg-red-50 rounded"
+                                >
+                                  <Trash2 className="w-3 h-3" /> 삭제
+                                </button>
+                              )}
+                              {latest.status !== 'pending' && (
+                                <div className="text-gray-300 flex justify-center">
+                                    <ChevronRight className="w-4 h-4" />
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+                </>
+            )}
           </div>
 
           <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-end">

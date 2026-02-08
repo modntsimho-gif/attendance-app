@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/utils/supabase/client"; 
 import { useRouter } from "next/navigation";
-import { X, Clock, CheckCircle2, AlertCircle, XCircle, Filter, ArrowRight, Calculator, Loader2, Trash2, FileText, FilePenLine, FileX2, History, ChevronRight } from "lucide-react";
+import { X, Clock, CheckCircle2, AlertCircle, XCircle, Filter, ArrowRight, Calculator, Loader2, Trash2, FileText, FilePenLine, FileX2, History, ChevronRight, Calendar } from "lucide-react";
 import OvertimeApplicationModal from "./OvertimeApplicationModal";
 import { deleteOvertimeRequest } from "@/app/actions/overtime"; 
 
@@ -12,7 +12,6 @@ interface WorkHistoryModalProps {
   onClose: () => void;
 }
 
-// [MODIFIED] DB 컬럼에 맞춰 인터페이스 수정
 interface OvertimeRequest {
   id: string;
   title: string;
@@ -29,21 +28,19 @@ interface OvertimeRequest {
   status: string;
   created_at: string;
   request_type?: string; 
-  original_overtime_request_id?: string; // ⭐️ 그룹화를 위한 필드 추가
+  original_overtime_request_id?: string;
 }
 
-// ⭐️ 그룹화된 데이터 타입 정의
 interface WorkGroup {
-  latest: OvertimeRequest; // 화면에 보여줄 최종 상태
-  count: number;           // 이력 건수
+  latest: OvertimeRequest;
+  count: number;
 }
 
 export default function WorkHistoryModal({ isOpen, onClose }: WorkHistoryModalProps) {
   const [activeTab, setActiveTab] = useState("all");
-  const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]); // ⭐️ 그룹화된 상태 사용
+  const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]); 
   const [isLoading, setIsLoading] = useState(false);
 
-  // 상세 보기 모달 상태
   const [selectedWork, setSelectedWork] = useState<any>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
 
@@ -68,15 +65,13 @@ export default function WorkHistoryModal({ isOpen, onClose }: WorkHistoryModalPr
         .order("created_at", { ascending: false });
 
       if (!error && data) {
-        processData(data); // ⭐️ 데이터 가공 함수 호출
+        processData(data);
       }
     }
     setIsLoading(false);
   };
 
-  // ⭐️ [핵심] 데이터를 그룹화하여 최종 상태만 남기는 함수
   const processData = (data: OvertimeRequest[]) => {
-    // 1. ID 매핑 및 부모 추적 맵 생성
     const itemMap = new Map<string, OvertimeRequest>();
     const parentMap = new Map<string, string>();
 
@@ -87,17 +82,15 @@ export default function WorkHistoryModal({ isOpen, onClose }: WorkHistoryModalPr
       }
     });
 
-    // 2. 최상위 루트 ID를 찾는 재귀적 함수
     const findRootId = (currentId: string): string => {
       let pointer = currentId;
       while (parentMap.has(pointer)) {
         pointer = parentMap.get(pointer)!;
-        if (!itemMap.has(pointer)) break; // 데이터 무결성 보호
+        if (!itemMap.has(pointer)) break;
       }
       return pointer;
     };
 
-    // 3. 그룹화 진행
     const groups: Record<string, OvertimeRequest[]> = {};
 
     data.forEach((item) => {
@@ -106,23 +99,22 @@ export default function WorkHistoryModal({ isOpen, onClose }: WorkHistoryModalPr
       groups[rootId].push(item);
     });
 
-    // 4. 그룹별 정렬 (최신순) 및 구조화
     const processed = Object.values(groups).map((groupList) => {
       groupList.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
       
       return {
-        latest: groupList[0], // 가장 최신 상태
-        count: groupList.length // 이력 건수
+        latest: groupList[0],
+        count: groupList.length
       };
     });
 
-    // 5. 전체 목록 정렬 (최신 업데이트 순)
     processed.sort((a, b) => new Date(b.latest.created_at).getTime() - new Date(a.latest.created_at).getTime());
 
     setWorkGroups(processed);
   };
 
-  const handleCancel = async (id: string) => {
+  const handleCancel = async (id: string, e?: React.MouseEvent) => {
+    if(e) e.stopPropagation();
     if (!confirm("정말 이 신청을 삭제하시겠습니까?\n삭제 후에는 복구할 수 없습니다.")) return;
     
     const result = await deleteOvertimeRequest(id);
@@ -133,7 +125,7 @@ export default function WorkHistoryModal({ isOpen, onClose }: WorkHistoryModalPr
     }
 
     alert("삭제되었습니다.");
-    fetchOvertimeHistory(); // ⭐️ 삭제 후 목록 재구성 (그룹 재계산 필요)
+    fetchOvertimeHistory();
     router.refresh(); 
   };
 
@@ -142,7 +134,6 @@ export default function WorkHistoryModal({ isOpen, onClose }: WorkHistoryModalPr
     setIsDetailOpen(true);
   };
 
-  // ⭐️ 필터링 로직 수정 (그룹의 최신 상태 기준)
   const filteredGroups = workGroups.filter(({ latest }) => {
     if (activeTab === "all") return true;
     if (activeTab === "pending") return latest.status === "pending";
@@ -185,15 +176,16 @@ export default function WorkHistoryModal({ isOpen, onClose }: WorkHistoryModalPr
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
         <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[85vh] flex flex-col overflow-hidden">
           
+          {/* 헤더 */}
           <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
             <div>
-              <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+              <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
                 <Clock className="w-5 h-5 text-purple-600" />
                 초과근무 신청 및 보상 내역
               </h2>
               <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
                 <Calculator className="w-3 h-3" />
-                보상 기준: 평일/토 1.5배, 일/공휴일 2.0배 (2시간 단위 인정)
+                보상 기준: 평일/토 1.5배, 일/공휴일 2.0배
               </p>
             </div>
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
@@ -201,134 +193,217 @@ export default function WorkHistoryModal({ isOpen, onClose }: WorkHistoryModalPr
             </button>
           </div>
 
-          <div className="px-6 pt-4 pb-0 border-b border-gray-200">
-            <div className="flex gap-6">
-              <button onClick={() => setActiveTab("all")} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'all' ? 'border-purple-600 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>전체 내역</button>
-              <button onClick={() => setActiveTab("pending")} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'pending' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>결재 진행중</button>
-              <button onClick={() => setActiveTab("approved")} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'approved' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>승인 완료</button>
+          {/* 탭 버튼 */}
+          <div className="px-6 pt-4 pb-0 border-b border-gray-200 bg-white">
+            <div className="flex gap-6 overflow-x-auto">
+              <button onClick={() => setActiveTab("all")} className={`pb-3 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'all' ? 'border-purple-600 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>전체 내역</button>
+              <button onClick={() => setActiveTab("pending")} className={`pb-3 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'pending' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>결재 진행중</button>
+              <button onClick={() => setActiveTab("approved")} className={`pb-3 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'approved' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>승인 완료</button>
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-6 bg-gray-50/30">
-            <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden min-h-[300px]">
-              
-              {isLoading ? (
+          <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-gray-50/30">
+            {isLoading ? (
                 <div className="flex flex-col items-center justify-center h-[300px] text-gray-400">
                   <Loader2 className="w-8 h-8 animate-spin mb-2 text-purple-500" />
                   <p>데이터를 불러오는 중...</p>
                 </div>
-              ) : (
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200 text-xs text-gray-500 uppercase">
-                      <th className="px-4 py-3 font-semibold">유형 / 근무일</th>
-                      <th className="px-4 py-3 font-semibold">근무 시간</th>
-                      <th className="px-4 py-3 font-semibold bg-purple-50/50 text-purple-900 border-x border-purple-100">
-                        보상 휴가
-                      </th>
-                      <th className="px-4 py-3 font-semibold">업무 내용</th>
-                      <th className="px-4 py-3 font-semibold text-center">상태</th>
-                      <th className="px-4 py-3 font-semibold text-center">관리</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {filteredGroups.length > 0 ? (
-                      filteredGroups.map(({ latest, count }) => {
-                        const hours = latest.total_hours || 0;
-                        const rewardHours = latest.recognized_hours || 0;
-                        const rewardDays = latest.recognized_days || 0;
-                        const isHoliday = latest.is_holiday;
+            ) : filteredGroups.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-[200px] text-gray-400 gap-2">
+                    <Filter className="w-8 h-8 opacity-20" />
+                    <span>해당하는 내역이 없습니다.</span>
+                </div>
+            ) : (
+                <>
+                {/* ⭐️ [Mobile] 카드 리스트 뷰 (md:hidden) */}
+                <div className="md:hidden space-y-3">
+                  {filteredGroups.map(({ latest, count }) => {
+                    const hours = latest.total_hours || 0;
+                    const rewardHours = latest.recognized_hours || 0;
+                    const rewardDays = latest.recognized_days || 0;
+                    const isHoliday = latest.is_holiday;
 
-                        return (
-                          <tr 
-                            key={latest.id} 
-                            onClick={() => handleRowClick(latest)} 
-                            className="hover:bg-purple-50/50 transition-colors cursor-pointer group"
-                          >
-                            <td className="px-4 py-3">
-                              <div className="flex items-center gap-2 mb-1">
-                                {renderRequestTypeBadge(latest.request_type)}
-                                <span className="font-bold text-gray-800 text-sm">{latest.work_date}</span>
-                                
-                                {/* ⭐️ 이력이 2건 이상일 때만 뱃지 표시 */}
-                                {count > 1 && (
-                                  <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 border border-gray-200" title="변경/취소 이력이 포함된 건입니다">
-                                    <History className="w-3 h-3" />
-                                    +{count - 1}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-xs text-gray-400 mt-0.5">{latest.title}</div>
-                            </td>
-                            <td className="px-4 py-3 text-sm text-gray-600">
-                              <div className="font-medium">{latest.start_time} ~ {latest.end_time}</div>
-                              <div className="text-xs text-gray-400 mt-0.5">총 {hours}시간 근무</div>
-                            </td>
-                            
-                            <td className="px-4 py-3 bg-purple-50/30 border-x border-purple-50">
-                              <div className="flex flex-col gap-1">
-                                <div className="flex items-center gap-1 text-[11px] text-gray-500">
-                                  {isHoliday ? (
-                                    <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-600 font-bold text-[10px]">공휴일 2.0배</span>
-                                  ) : (
-                                    <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-600 font-bold text-[10px]">1.5배</span>
-                                  )}
-                                  <span>적용</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <ArrowRight className="w-3 h-3 text-purple-400" />
-                                  <span className={`text-sm font-bold px-2 py-0.5 rounded border ${
-                                      latest.request_type === 'cancel' 
-                                      ? 'bg-red-50 text-red-600 border-red-200 line-through decoration-red-400' 
-                                      : 'bg-purple-100 text-purple-700 border-purple-200'
-                                  }`}>
-                                    {rewardHours}h ({Number(rewardDays).toFixed(2)}일)
-                                  </span>
-                                </div>
-                              </div>
-                            </td>
-
-                            <td className="px-4 py-3 text-sm text-gray-500 max-w-[150px] truncate" title={latest.reason}>
-                              {latest.reason}
-                            </td>
-                            <td className="px-4 py-3 text-center">
-                              {renderStatusBadge(latest.status)}
-                            </td>
-                            <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                              {latest.status === 'pending' && (
-                                <button 
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleCancel(latest.id);
-                                  }}
-                                  className="text-xs text-red-500 hover:text-red-700 flex items-center justify-center gap-1 mx-auto font-medium transition-colors p-2 hover:bg-red-50 rounded"
-                                >
-                                  <Trash2 className="w-3 h-3" /> 삭제
-                                </button>
-                              )}
-                              {latest.status !== 'pending' && (
-                                <div className="text-gray-300 flex justify-center">
-                                    <ChevronRight className="w-4 h-4" />
-                                </div>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })
-                    ) : (
-                      <tr>
-                        <td colSpan={6} className="px-4 py-12 text-center text-gray-400">
-                          <div className="flex flex-col items-center gap-2">
-                            <Filter className="w-8 h-8 opacity-20" />
-                            <span>해당하는 내역이 없습니다.</span>
+                    return (
+                      <div 
+                        key={latest.id}
+                        onClick={() => handleRowClick(latest)}
+                        className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm active:bg-gray-50 transition-colors"
+                      >
+                        {/* 상단: 뱃지 및 상태 */}
+                        <div className="flex justify-between items-start mb-3">
+                          <div className="flex items-center gap-2">
+                             {renderRequestTypeBadge(latest.request_type)}
+                             {count > 1 && (
+                                <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 border border-gray-200 font-medium">
+                                  <History className="w-3 h-3" />
+                                  +{count - 1}
+                                </span>
+                             )}
                           </div>
-                        </td>
+                          {renderStatusBadge(latest.status)}
+                        </div>
+
+                        {/* 중단: 근무 정보 */}
+                        <div className="mb-3">
+                          <div className="text-base font-bold text-gray-900 mb-1 flex items-center gap-2">
+                            {latest.work_date}
+                            <span className="text-xs font-normal text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
+                                {hours}h 근무
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-sm text-gray-700 font-medium mb-2">
+                             <Clock className="w-4 h-4 text-gray-400" />
+                             {latest.start_time} ~ {latest.end_time}
+                          </div>
+                          
+                          {/* 보상 정보 박스 (모바일 전용 강조) */}
+                          <div className="bg-purple-50 border border-purple-100 rounded-lg p-3 flex items-center justify-between">
+                             <div className="flex items-center gap-1.5">
+                                <Calculator className="w-4 h-4 text-purple-500" />
+                                <span className="text-xs font-bold text-purple-700">보상 휴가</span>
+                                {isHoliday ? (
+                                    <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold">2.0배</span>
+                                ) : (
+                                    <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-bold">1.5배</span>
+                                )}
+                             </div>
+                             <div className={`text-sm font-bold ${latest.request_type === 'cancel' ? 'text-red-500 line-through decoration-red-400' : 'text-purple-700'}`}>
+                                {rewardHours}h ({Number(rewardDays).toFixed(2)}일)
+                             </div>
+                          </div>
+                        </div>
+
+                        {/* 하단: 사유 및 액션 */}
+                        <div className="flex justify-between items-end border-t border-gray-100 pt-3">
+                          <div className="flex flex-col gap-1">
+                              <span className="text-xs text-gray-400 flex items-center gap-1">
+                                  <Calendar className="w-3 h-3" />
+                                  {new Date(latest.created_at).toLocaleDateString()} 신청
+                              </span>
+                              {latest.reason && (
+                                  <p className="text-xs text-gray-500 truncate max-w-[200px]">
+                                      {latest.reason}
+                                  </p>
+                              )}
+                          </div>
+                          
+                          {latest.status === 'pending' ? (
+                             <button 
+                               onClick={(e) => handleCancel(latest.id, e)}
+                               className="text-xs bg-white border border-red-200 text-red-600 px-3 py-1.5 rounded-lg font-bold hover:bg-red-50 flex items-center gap-1 shadow-sm"
+                             >
+                               <Trash2 className="w-3 h-3" /> 삭제
+                             </button>
+                          ) : (
+                             <ChevronRight className="w-5 h-5 text-gray-300" />
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* ⭐️ [Desktop] 테이블 뷰 (hidden md:block) - PC버전 영향 없음 */}
+                <div className="hidden md:block bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden min-h-[300px]">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200 text-xs text-gray-500 uppercase">
+                        <th className="px-4 py-3 font-semibold">유형 / 근무일</th>
+                        <th className="px-4 py-3 font-semibold">근무 시간</th>
+                        <th className="px-4 py-3 font-semibold bg-purple-50/50 text-purple-900 border-x border-purple-100">
+                          보상 휴가
+                        </th>
+                        <th className="px-4 py-3 font-semibold">업무 내용</th>
+                        <th className="px-4 py-3 font-semibold text-center">상태</th>
+                        <th className="px-4 py-3 font-semibold text-center">관리</th>
                       </tr>
-                    )}
-                  </tbody>
-                </table>
-              )}
-            </div>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                        {filteredGroups.map(({ latest, count }) => {
+                          const hours = latest.total_hours || 0;
+                          const rewardHours = latest.recognized_hours || 0;
+                          const rewardDays = latest.recognized_days || 0;
+                          const isHoliday = latest.is_holiday;
+
+                          return (
+                            <tr 
+                              key={latest.id} 
+                              onClick={() => handleRowClick(latest)} 
+                              className="hover:bg-purple-50/50 transition-colors cursor-pointer group"
+                            >
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-2 mb-1">
+                                  {renderRequestTypeBadge(latest.request_type)}
+                                  <span className="font-bold text-gray-800 text-sm">{latest.work_date}</span>
+                                  {count > 1 && (
+                                    <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 border border-gray-200" title="변경/취소 이력이 포함된 건입니다">
+                                      <History className="w-3 h-3" />
+                                      +{count - 1}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-xs text-gray-400 mt-0.5">{latest.title}</div>
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-600">
+                                <div className="font-medium">{latest.start_time} ~ {latest.end_time}</div>
+                                <div className="text-xs text-gray-400 mt-0.5">총 {hours}시간 근무</div>
+                              </td>
+                              
+                              <td className="px-4 py-3 bg-purple-50/30 border-x border-purple-50">
+                                <div className="flex flex-col gap-1">
+                                  <div className="flex items-center gap-1 text-[11px] text-gray-500">
+                                    {isHoliday ? (
+                                      <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-600 font-bold text-[10px]">공휴일 2.0배</span>
+                                    ) : (
+                                      <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-600 font-bold text-[10px]">1.5배</span>
+                                    )}
+                                    <span>적용</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <ArrowRight className="w-3 h-3 text-purple-400" />
+                                    <span className={`text-sm font-bold px-2 py-0.5 rounded border ${
+                                        latest.request_type === 'cancel' 
+                                        ? 'bg-red-50 text-red-600 border-red-200 line-through decoration-red-400' 
+                                        : 'bg-purple-100 text-purple-700 border-purple-200'
+                                    }`}>
+                                      {rewardHours}h ({Number(rewardDays).toFixed(2)}일)
+                                    </span>
+                                  </div>
+                                </div>
+                              </td>
+
+                              <td className="px-4 py-3 text-sm text-gray-500 max-w-[150px] truncate" title={latest.reason}>
+                                {latest.reason}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                {renderStatusBadge(latest.status)}
+                              </td>
+                              <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                                {latest.status === 'pending' && (
+                                  <button 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleCancel(latest.id);
+                                    }}
+                                    className="text-xs text-red-500 hover:text-red-700 flex items-center justify-center gap-1 mx-auto font-medium transition-colors p-2 hover:bg-red-50 rounded"
+                                  >
+                                    <Trash2 className="w-3 h-3" /> 삭제
+                                  </button>
+                                )}
+                                {latest.status !== 'pending' && (
+                                  <div className="text-gray-300 flex justify-center">
+                                      <ChevronRight className="w-4 h-4" />
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+                </>
+            )}
           </div>
 
           <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-end">
