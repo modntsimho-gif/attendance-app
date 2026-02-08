@@ -1,28 +1,41 @@
 "use client";
 
 import { useEffect, useState } from "react";
-// getHolidays, addHoliday, deleteHoliday 추가 import 확인하세요
-import { getEmployees, updateEmployee, getHolidays, addHoliday, deleteHoliday } from "./actions";
+import { 
+  getEmployees, updateEmployee, getHolidays, addHoliday, deleteHoliday,
+  getEmployeeAllocations, saveEmployeeAllocation, deleteEmployeeAllocation 
+} from "./actions";
 import { 
   Loader2, Save, X, Edit, UserCheck, Search, 
-  ArrowLeft, Calendar, PieChart, CalendarDays, Trash2, Plus 
+  ArrowLeft, CalendarDays, Trash2, Plus, Settings2, UserMinus 
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 
-// 타입 정의
+const DEPARTMENTS = ["CEO", "대외협력팀", "소원사업팀", "경영지원팀"];
+const POSITIONS = ["간사", "대리", "과장", "차장", "팀장", "사무총장"];
+
+type Allocation = {
+  id: string;
+  year: number;
+  total_days: number;
+};
+
 type Profile = {
   id: string;
   email: string;
   name: string;
-  department: string;
-  position: string;
+  department: string | null;
+  position: string | null;
   role: string;
+  join_date: string | null;
+  resigned_at: string | null; // ⭐️ 퇴사일 필드 추가
   total_leave_days: number;
   used_leave_days: number;
   extra_leave_days: number;
   extra_used_leave_days: number;
+  annual_leave_allocations?: Allocation[];
 };
 
 type Holiday = {
@@ -34,18 +47,18 @@ type Holiday = {
 export default function AdminPage() {
   const router = useRouter();
   
-  // 탭 상태: 'employees' | 'holidays'
   const [activeTab, setActiveTab] = useState<"employees" | "holidays">("employees");
-  
   const [employees, setEmployees] = useState<Profile[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // 직원 수정 상태
   const [editingUser, setEditingUser] = useState<Profile | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
 
-  // 공휴일 추가 입력 상태
+  const [modalAllocations, setModalAllocations] = useState<Allocation[]>([]);
+  const [newAllocation, setNewAllocation] = useState({ year: new Date().getFullYear(), days: 15 });
+  const [allocLoading, setAllocLoading] = useState(false);
+
   const [newHoliday, setNewHoliday] = useState({ date: "", title: "" });
 
   useEffect(() => {
@@ -55,27 +68,26 @@ export default function AdminPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      // 두 데이터를 병렬로 가져옴
       const [empData, holiData] = await Promise.all([
         getEmployees(),
         getHolidays()
       ]);
-      setEmployees(empData || []);
+      setEmployees((empData as any) || []);
       setHolidays(holiData || []);
     } catch (e) {
       console.error(e);
-      // alert("데이터 로딩 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
     }
   };
 
-  // --- 직원 관리 핸들러 ---
-  const handleEdit = (user: Profile) => {
-    setEditingUser({
-      ...user,
-      extra_used_leave_days: user.extra_used_leave_days || 0 
-    });
+  const handleEdit = async (user: Profile) => {
+    setEditingUser({ ...user });
+    
+    setAllocLoading(true);
+    const allocs = await getEmployeeAllocations(user.id);
+    setModalAllocations(allocs || []);
+    setAllocLoading(false);
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -83,53 +95,77 @@ export default function AdminPage() {
     setEditingUser((prev) => prev ? { ...prev, [name]: value } : null);
   };
 
-  const handleSave = async () => {
+  const handleSaveProfile = async () => {
     if (!editingUser) return;
-    if (!confirm(`${editingUser.name} 님의 정보를 수정하시겠습니까?`)) return;
+    
+    // 퇴사일이 설정되어 있다면 경고 메시지 강화
+    const confirmMsg = editingUser.resigned_at 
+      ? `${editingUser.name} 님을 퇴사 처리(또는 정보 수정) 하시겠습니까?\n퇴사일: ${editingUser.resigned_at}`
+      : `${editingUser.name} 님의 기본 정보를 수정하시겠습니까?`;
+
+    if (!confirm(confirmMsg)) return;
 
     const res = await updateEmployee(editingUser.id, editingUser);
     if (res.error) {
       alert("오류: " + res.error);
     } else {
-      alert("수정되었습니다.");
+      alert("저장되었습니다.");
       setEditingUser(null);
       loadData();
     }
   };
 
-  // --- 공휴일 관리 핸들러 ---
-  const handleAddHoliday = async () => {
-    if (!newHoliday.date || !newHoliday.title) {
-      alert("날짜와 공휴일 명을 모두 입력해주세요.");
-      return;
+  const handleSaveAllocation = async () => {
+    if (!editingUser) return;
+    if (!newAllocation.year || !newAllocation.days) return alert("연도와 일수를 입력해주세요.");
+
+    const res = await saveEmployeeAllocation(editingUser.id, newAllocation.year, newAllocation.days);
+    if (res.success) {
+      const updated = await getEmployeeAllocations(editingUser.id);
+      setModalAllocations(updated || []);
+      
+      if (newAllocation.year === new Date().getFullYear()) {
+         loadData(); 
+      }
+      alert("저장되었습니다.");
+    } else {
+      alert("저장 실패: " + res.error);
     }
+  };
+
+  const handleDeleteAllocation = async (id: string) => {
+    if (!confirm("삭제하시겠습니까?")) return;
+    const res = await deleteEmployeeAllocation(id);
+    if (res.success) {
+      if (editingUser) {
+        const updated = await getEmployeeAllocations(editingUser.id);
+        setModalAllocations(updated || []);
+        loadData();
+      }
+    }
+  };
+
+  const handleAddHoliday = async () => {
+    if (!newHoliday.date || !newHoliday.title) return alert("입력해주세요.");
     const res = await addHoliday(newHoliday.date, newHoliday.title);
     if (res.success) {
-      setNewHoliday({ date: "", title: "" }); // 초기화
-      const updated = await getHolidays(); // 목록 갱신
+      setNewHoliday({ date: "", title: "" }); 
+      const updated = await getHolidays(); 
       setHolidays(updated || []);
-    } else {
-      alert("추가 실패: " + res.error);
     }
   };
 
   const handleDeleteHoliday = async (id: string) => {
-    if (!confirm("정말 삭제하시겠습니까?")) return;
+    if (!confirm("삭제하시겠습니까?")) return;
     const res = await deleteHoliday(id);
     if (res.success) {
       const updated = await getHolidays();
       setHolidays(updated || []);
-    } else {
-      alert("삭제 실패: " + res.error);
     }
   };
 
-  // 계산 로직
-  const calcBasicRemain = (user: Profile) => (Number(user.total_leave_days || 0) - Number(user.used_leave_days || 0)).toFixed(1);
-  const calcExtraRemain = (user: Profile) => (Number(user.extra_leave_days || 0) - Number(user.extra_used_leave_days || 0)).toFixed(1);
-
   const filteredEmployees = employees.filter(emp => 
-    emp.name.includes(searchTerm) || emp.department?.includes(searchTerm)
+    emp.name.includes(searchTerm) || (emp.department && emp.department.includes(searchTerm))
   );
 
   if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin text-gray-400" /></div>;
@@ -138,7 +174,7 @@ export default function AdminPage() {
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-7xl mx-auto space-y-6">
         
-        {/* 헤더 & 탭 */}
+        {/* 헤더 */}
         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-4 w-full md:w-auto">
             <Link href="/" className="p-2 hover:bg-gray-100 rounded-full">
@@ -149,7 +185,6 @@ export default function AdminPage() {
             </h1>
           </div>
 
-          {/* 탭 버튼 그룹 */}
           <div className="flex bg-gray-100 p-1 rounded-lg">
             <button 
               onClick={() => setActiveTab("employees")}
@@ -170,12 +205,9 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {/* ----------------------------------------------------------------------------------
-            TAB 1: 직원 관리
-           ---------------------------------------------------------------------------------- */}
+        {/* 직원 관리 탭 */}
         {activeTab === "employees" && (
           <>
-            {/* 검색바 */}
             <div className="flex justify-end">
               <div className="relative w-64">
                 <Search className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
@@ -189,33 +221,63 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* 직원 테이블 */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
               <table className="w-full text-sm text-left">
                 <thead className="bg-gray-50 text-gray-600 font-bold uppercase text-xs border-b">
                   <tr>
                     <th className="px-6 py-4">이름 / 부서</th>
-                    <th className="px-6 py-4 text-center">기본 잔여</th>
-                    <th className="px-6 py-4 text-center">연차외 잔여</th>
+                    <th className="px-6 py-4">연도별 기초 연차 내역</th>
                     <th className="px-6 py-4 text-center">관리</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {filteredEmployees.map((user) => (
-                    <tr key={user.id} className="hover:bg-gray-50">
+                    // ⭐️ 퇴사자 스타일 적용 (배경색, 투명도)
+                    <tr key={user.id} className={`hover:bg-gray-50 ${user.resigned_at ? "bg-gray-100/50" : ""}`}>
+                      <td className="px-6 py-4 align-top">
+                        <div className="flex items-center gap-2">
+                          <div className={`font-bold text-base ${user.resigned_at ? "text-gray-400 line-through" : "text-gray-900"}`}>
+                            {user.name}
+                          </div>
+                          {/* ⭐️ 퇴사 배지 */}
+                          {user.resigned_at && (
+                            <span className="px-2 py-0.5 bg-red-100 text-red-600 text-[10px] font-bold rounded-full">
+                              퇴사 ({user.resigned_at})
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-gray-500 text-xs mt-0.5">{user.department} / {user.position}</div>
+                      </td>
+                      
                       <td className="px-6 py-4">
-                        <div className="font-bold text-gray-900">{user.name}</div>
-                        <div className="text-gray-500 text-xs">{user.department} / {user.position}</div>
+                        <div className="flex flex-wrap gap-2">
+                          {user.annual_leave_allocations && user.annual_leave_allocations.length > 0 ? (
+                            user.annual_leave_allocations
+                              .sort((a, b) => b.year - a.year)
+                              .map((alloc) => (
+                                <span 
+                                  key={alloc.year} 
+                                  className={`px-2.5 py-1 rounded-md text-xs font-bold border ${
+                                    alloc.year === new Date().getFullYear() 
+                                      ? "bg-blue-50 text-blue-700 border-blue-100" 
+                                      : "bg-gray-50 text-gray-600 border-gray-200"
+                                  }`}
+                                >
+                                  {alloc.year}년: {alloc.total_days}개
+                                </span>
+                              ))
+                          ) : (
+                            <span className="text-gray-400 text-xs">설정된 내역 없음</span>
+                          )}
+                        </div>
                       </td>
-                      <td className="px-6 py-4 text-center font-bold text-blue-600">
-                        {calcBasicRemain(user)}일
-                      </td>
-                      <td className="px-6 py-4 text-center font-bold text-orange-600">
-                        {calcExtraRemain(user)}일
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <button onClick={() => handleEdit(user)} className="bg-gray-100 hover:bg-gray-200 p-2 rounded-lg text-gray-600">
-                          <Edit className="w-4 h-4" />
+
+                      <td className="px-6 py-4 text-center align-middle">
+                        <button 
+                          onClick={() => handleEdit(user)} 
+                          className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors inline-flex items-center gap-1"
+                        >
+                          <Edit className="w-3 h-3" /> 수정 / 설정
                         </button>
                       </td>
                     </tr>
@@ -226,13 +288,9 @@ export default function AdminPage() {
           </>
         )}
 
-        {/* ----------------------------------------------------------------------------------
-            TAB 2: 공휴일 관리
-           ---------------------------------------------------------------------------------- */}
+        {/* 공휴일 관리 탭 */}
         {activeTab === "holidays" && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            
-            {/* 왼쪽: 공휴일 추가 폼 */}
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit">
               <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
                 <Plus className="w-5 h-5 text-red-500" /> 공휴일 추가
@@ -240,43 +298,25 @@ export default function AdminPage() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1">날짜</label>
-                  <input 
-                    type="date" 
-                    value={newHoliday.date}
-                    onChange={(e) => setNewHoliday({...newHoliday, date: e.target.value})}
-                    className="w-full border rounded-lg p-2 text-sm"
-                  />
+                  <input type="date" value={newHoliday.date} onChange={(e) => setNewHoliday({...newHoliday, date: e.target.value})} className="w-full border rounded-lg p-2 text-sm" />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1">공휴일 명칭</label>
-                  <input 
-                    type="text" 
-                    placeholder="예: 창립기념일"
-                    value={newHoliday.title}
-                    onChange={(e) => setNewHoliday({...newHoliday, title: e.target.value})}
-                    className="w-full border rounded-lg p-2 text-sm"
-                  />
+                  <input type="text" placeholder="예: 창립기념일" value={newHoliday.title} onChange={(e) => setNewHoliday({...newHoliday, title: e.target.value})} className="w-full border rounded-lg p-2 text-sm" />
                 </div>
-                <button 
-                  onClick={handleAddHoliday}
-                  className="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2 rounded-lg text-sm flex items-center justify-center gap-2 transition-colors"
-                >
+                <button onClick={handleAddHoliday} className="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2 rounded-lg text-sm flex items-center justify-center gap-2 transition-colors">
                   <Plus className="w-4 h-4" /> 추가하기
                 </button>
               </div>
             </div>
 
-            {/* 오른쪽: 공휴일 목록 리스트 */}
             <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
               <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
                 <h3 className="font-bold text-gray-700 flex items-center gap-2">
                   <CalendarDays className="w-4 h-4" /> 등록된 공휴일 목록
                 </h3>
-                <span className="text-xs font-bold bg-white px-2 py-1 rounded border text-gray-500">
-                  총 {holidays.length}개
-                </span>
+                <span className="text-xs font-bold bg-white px-2 py-1 rounded border text-gray-500">총 {holidays.length}개</span>
               </div>
-              
               <div className="flex-1 overflow-y-auto max-h-[600px] p-0">
                 <table className="w-full text-sm text-left">
                   <thead className="bg-white text-gray-500 font-bold text-xs border-b sticky top-0">
@@ -291,49 +331,33 @@ export default function AdminPage() {
                       holidays.map((holiday) => (
                         <tr key={holiday.id} className="hover:bg-gray-50 group">
                           <td className="px-6 py-3 font-medium text-gray-900">
-                            {holiday.date} 
-                            <span className="ml-2 text-xs text-gray-400 font-normal">
-                              ({format(new Date(holiday.date), "EEE")})
-                            </span>
+                            {holiday.date} <span className="ml-2 text-xs text-gray-400 font-normal">({format(new Date(holiday.date), "EEE")})</span>
                           </td>
-                          <td className="px-6 py-3 text-gray-700">
-                            {holiday.title}
-                          </td>
+                          <td className="px-6 py-3 text-gray-700">{holiday.title}</td>
                           <td className="px-6 py-3 text-right">
-                            <button 
-                              onClick={() => handleDeleteHoliday(holiday.id)}
-                              className="text-gray-300 hover:text-red-500 transition-colors p-1"
-                              title="삭제"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            <button onClick={() => handleDeleteHoliday(holiday.id)} className="text-gray-300 hover:text-red-500 transition-colors p-1"><Trash2 className="w-4 h-4" /></button>
                           </td>
                         </tr>
                       ))
                     ) : (
-                      <tr>
-                        <td colSpan={3} className="px-6 py-10 text-center text-gray-400">
-                          등록된 공휴일이 없습니다.
-                        </td>
-                      </tr>
+                      <tr><td colSpan={3} className="px-6 py-10 text-center text-gray-400">등록된 공휴일이 없습니다.</td></tr>
                     )}
                   </tbody>
                 </table>
               </div>
             </div>
-
           </div>
         )}
 
       </div>
 
-      {/* ⭐️ 직원 수정 모달 (기존 코드 유지) */}
+      {/* 직원 수정 모달 */}
       {editingUser && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
             
             <div className="bg-gray-900 p-5 flex justify-between items-center">
-              <h2 className="text-white font-bold text-lg">직원 정보 및 연차 수정</h2>
+              <h2 className="text-white font-bold text-lg">직원 정보 및 연차 설정</h2>
               <button onClick={() => setEditingUser(null)} className="text-gray-400 hover:text-white">
                 <X className="w-6 h-6" />
               </button>
@@ -341,7 +365,7 @@ export default function AdminPage() {
             
             <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
               
-              {/* 1. 기본 정보 */}
+              {/* 기본 정보 */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1">이름</label>
@@ -349,11 +373,17 @@ export default function AdminPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1">부서</label>
-                  <input name="department" value={editingUser.department || ""} onChange={handleChange} className="w-full border rounded-lg p-2" />
+                  <select name="department" value={editingUser.department || ""} onChange={handleChange} className="w-full border rounded-lg p-2">
+                    <option value="">선택하세요</option>
+                    {DEPARTMENTS.map(dept => <option key={dept} value={dept}>{dept}</option>)}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1">직급</label>
-                  <input name="position" value={editingUser.position || ""} onChange={handleChange} className="w-full border rounded-lg p-2" />
+                  <select name="position" value={editingUser.position || ""} onChange={handleChange} className="w-full border rounded-lg p-2">
+                    <option value="">선택하세요</option>
+                    {POSITIONS.map(pos => <option key={pos} value={pos}>{pos}</option>)}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1">권한</label>
@@ -366,54 +396,102 @@ export default function AdminPage() {
 
               <div className="h-px bg-gray-100"></div>
 
-              {/* 2. 연차 데이터 수정 */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
-                  <h3 className="text-blue-800 font-bold mb-3 flex items-center gap-2">
-                    <Calendar className="w-4 h-4" /> 기본 연차 현황
-                  </h3>
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-xs font-bold text-blue-700 mb-1">총 연차 (발생)</label>
-                      <input type="number" name="total_leave_days" value={editingUser.total_leave_days} onChange={handleChange} className="w-full border border-blue-200 rounded-lg p-2 text-right font-medium" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-blue-700 mb-1">사용 연차</label>
-                      <input type="number" name="used_leave_days" value={editingUser.used_leave_days} onChange={handleChange} className="w-full border border-blue-200 rounded-lg p-2 text-right font-medium" />
-                    </div>
-                    <div className="flex justify-between items-center pt-2 border-t border-blue-200">
-                      <span className="text-sm font-bold text-blue-900">잔여 연차</span>
-                      <span className="text-xl font-bold text-blue-700">{calcBasicRemain(editingUser)} 일</span>
-                    </div>
+              {/* 연차 설정 영역 */}
+              <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
+                <h3 className="text-blue-800 font-bold mb-3 flex items-center gap-2">
+                  <Settings2 className="w-4 h-4" /> 연도별 기초 연차(발생) 설정
+                </h3>
+                
+                <div className="flex gap-2 mb-4">
+                  <div className="flex-1">
+                    <input 
+                      type="number" 
+                      placeholder="연도 (예: 2025)"
+                      value={newAllocation.year}
+                      onChange={(e) => setNewAllocation({...newAllocation, year: parseInt(e.target.value)})}
+                      className="w-full border border-blue-200 rounded-lg p-2 text-sm"
+                    />
                   </div>
+                  <div className="flex-1">
+                     <input 
+                      type="number" 
+                      placeholder="총 연차 (일)"
+                      value={newAllocation.days}
+                      onChange={(e) => setNewAllocation({...newAllocation, days: parseFloat(e.target.value)})}
+                      className="w-full border border-blue-200 rounded-lg p-2 text-sm"
+                    />
+                  </div>
+                  <button 
+                    onClick={handleSaveAllocation}
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-3 rounded-lg font-bold text-sm whitespace-nowrap"
+                  >
+                    설정
+                  </button>
                 </div>
 
-                <div className="bg-orange-50 p-4 rounded-xl border border-orange-100">
-                  <h3 className="text-orange-800 font-bold mb-3 flex items-center gap-2">
-                    <PieChart className="w-4 h-4" /> 연차 외 휴가 현황
-                  </h3>
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-xs font-bold text-orange-700 mb-1">총 발생 (보상/대체)</label>
-                      <input type="number" name="extra_leave_days" value={editingUser.extra_leave_days} onChange={handleChange} className="w-full border border-orange-200 rounded-lg p-2 text-right font-medium" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-orange-700 mb-1">사용 (보상/대체)</label>
-                      <input type="number" name="extra_used_leave_days" value={editingUser.extra_used_leave_days} onChange={handleChange} className="w-full border border-orange-200 rounded-lg p-2 text-right font-medium" />
-                    </div>
-                    <div className="flex justify-between items-center pt-2 border-t border-orange-200">
-                      <span className="text-sm font-bold text-orange-900">잔여 (연차 외)</span>
-                      <span className="text-xl font-bold text-orange-700">{calcExtraRemain(editingUser)} 일</span>
-                    </div>
+                <div className="bg-white rounded-lg border border-blue-100 overflow-hidden">
+                  {allocLoading ? (
+                    <div className="p-4 text-center text-xs text-gray-400">불러오는 중...</div>
+                  ) : modalAllocations.length === 0 ? (
+                    <div className="p-4 text-center text-xs text-gray-400">설정된 연차 정보가 없습니다.</div>
+                  ) : (
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-blue-50/50 text-blue-800 text-xs font-bold">
+                        <tr>
+                          <th className="px-4 py-2">연도</th>
+                          <th className="px-4 py-2">총 발생 연차</th>
+                          <th className="px-4 py-2 text-right">삭제</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {modalAllocations.map((alloc) => (
+                          <tr key={alloc.id}>
+                            <td className="px-4 py-2 font-medium">{alloc.year}년</td>
+                            <td className="px-4 py-2 font-bold text-blue-600">{alloc.total_days}일</td>
+                            <td className="px-4 py-2 text-right">
+                              <button 
+                                onClick={() => handleDeleteAllocation(alloc.id)}
+                                className="text-gray-300 hover:text-red-500 transition-colors"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+
+              {/* ⭐️ 퇴사 처리 영역 (Danger Zone) */}
+              <div className="bg-red-50 p-4 rounded-xl border border-red-100">
+                <h3 className="text-red-800 font-bold mb-3 flex items-center gap-2">
+                  <UserMinus className="w-4 h-4" /> 퇴사 처리 (Danger Zone)
+                </h3>
+                <div className="flex items-center gap-4">
+                  <div className="flex-1">
+                    <label className="block text-xs font-bold text-red-600 mb-1">퇴사일자</label>
+                    <input 
+                      type="date" 
+                      name="resigned_at"
+                      value={editingUser.resigned_at || ""}
+                      onChange={handleChange}
+                      className="w-full border border-red-200 rounded-lg p-2 text-sm focus:ring-red-500"
+                    />
+                    <p className="text-[10px] text-red-500 mt-1">
+                      * 퇴사일을 입력하고 저장하면 퇴사 처리됩니다. (복구하려면 날짜를 지우세요)
+                    </p>
                   </div>
                 </div>
               </div>
+
             </div>
 
             <div className="p-5 bg-gray-50 border-t flex justify-end gap-3">
               <button onClick={() => setEditingUser(null)} className="px-5 py-2 text-gray-600 hover:bg-gray-200 rounded-lg font-bold text-sm">취소</button>
-              <button onClick={handleSave} className="px-5 py-2 bg-gray-900 hover:bg-gray-800 text-white rounded-lg font-bold text-sm flex items-center gap-2">
-                <Save className="w-4 h-4" /> 저장하기
+              <button onClick={handleSaveProfile} className="px-5 py-2 bg-gray-900 hover:bg-gray-800 text-white rounded-lg font-bold text-sm flex items-center gap-2">
+                <Save className="w-4 h-4" /> 정보 저장
               </button>
             </div>
           </div>

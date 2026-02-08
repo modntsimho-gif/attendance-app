@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { getMyCurrentYearStats } from "@/app/actions/dashboard"; 
 import CalendarView from "@/components/CalendarView";
 import LeaveApplicationModal from "@/components/LeaveApplicationModal";
 import LeaveHistoryModal from "@/components/LeaveHistoryModal";
@@ -11,9 +12,10 @@ import ApprovalModal from "@/components/ApprovalModal";
 import OvertimeApplicationModal from "@/components/OvertimeApplicationModal"; 
 import TeamListWidget, { Employee } from "@/components/TeamListWidget"; 
 import DashboardWidgets from "@/components/DashboardWidgets";
+// ⭐️ [IMPORT] AlertTriangle 아이콘 추가
 import { 
   PlusCircle, Clock, PieChart, Calendar, History, List, Inbox, ChevronRight, UserCog, 
-  Settings, Users 
+  Settings, Users, AlertTriangle 
 } from "lucide-react";
 
 interface DashboardClientProps {
@@ -46,11 +48,29 @@ export default function DashboardClient({
   
   const router = useRouter();
   
+  const [displayTotalLeave, setDisplayTotalLeave] = useState(totalLeave);
+  
   const [localLeaveCount, setLocalLeaveCount] = useState(leaveRequestCount);
   const [localOvertimeCount, setLocalOvertimeCount] = useState(overtimeRequestCount);
 
+  const currentYear = new Date().getFullYear();
+
   useEffect(() => { setLocalLeaveCount(leaveRequestCount); }, [leaveRequestCount]);
   useEffect(() => { setLocalOvertimeCount(overtimeRequestCount); }, [overtimeRequestCount]);
+
+  useEffect(() => {
+    const fetchLatestStats = async () => {
+      try {
+        const stats = await getMyCurrentYearStats();
+        if (stats && stats.totalLeave !== undefined) {
+          setDisplayTotalLeave(stats.totalLeave);
+        }
+      } catch (e) {
+        console.error("연차 정보 업데이트 실패", e);
+      }
+    };
+    fetchLatestStats();
+  }, []);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -68,8 +88,8 @@ export default function DashboardClient({
     return Math.min(100, Math.max(0, rate)); 
   };
 
-  const annualRemaining = totalLeave - usedLeave; 
-  const annualRate = calculateRate(totalLeave, usedLeave);
+  const annualRemaining = displayTotalLeave - usedLeave; 
+  const annualRate = calculateRate(displayTotalLeave, usedLeave);
   const annualRateStr = annualRate.toFixed(1); 
 
   const extraRemaining = extraTotalLeave - extraUsedLeave; 
@@ -124,19 +144,37 @@ export default function DashboardClient({
           )}
         </div>
 
-        {/* 상단 통계 (카드 섹션) - 항상 최상단 유지 */}
+        {/* 상단 통계 (카드 섹션) */}
         <div className="space-y-6">
+           
+           {/* ⭐️ [UI] 연차 미설정 경고 메시지 (총 연차가 0일 때 표시) */}
+           {displayTotalLeave === 0 && (
+             <div className="bg-amber-50 border-l-4 border-amber-400 p-4 rounded-r-xl shadow-sm flex items-start gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
+               <div className="p-2 bg-amber-100 rounded-full shrink-0">
+                 <AlertTriangle className="w-5 h-5 text-amber-600" />
+               </div>
+               <div>
+                 <h3 className="font-bold text-amber-800 text-sm">
+                   {currentYear}년도 설정된 기초 연차가 없습니다.
+                 </h3>
+                 <p className="text-amber-700 text-sm mt-1">
+                   현재 할당된 연차가 0일입니다. 관리자에게 <strong>{currentYear}년 연차 설정</strong>을 요청하세요.
+                 </p>
+               </div>
+             </div>
+           )}
+
            {/* 1. 기본 연차 현황 */}
            <div>
             <h3 className="text-gray-700 font-bold mb-3 flex items-center gap-2">
               <Calendar className="w-5 h-5 text-blue-600" />
-              연차 현황
+              {currentYear}년 연차 현황
             </h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
-                <div className="text-gray-500 text-xs font-medium mb-1">총 연차</div>
-                <div className="text-2xl font-bold text-gray-800">
-                  {formatLeave(totalLeave)} <span className="text-sm font-normal text-gray-400">일</span>
+                <div className="text-gray-500 text-xs font-medium mb-1">{currentYear}년 총 연차</div>
+                <div className={`text-2xl font-bold ${displayTotalLeave === 0 ? 'text-gray-400' : 'text-gray-800'}`}>
+                  {formatLeave(displayTotalLeave)} <span className="text-sm font-normal text-gray-400">일</span>
                 </div>
               </div>
               <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
@@ -211,18 +249,8 @@ export default function DashboardClient({
           </div>
         </div>
 
-        {/* 
-          ⭐️ [LAYOUT CHANGE] 
-          Mobile: flex-col (세로 배치)
-          Desktop: grid (기존 유지)
-        */}
+        {/* 하단 레이아웃 (기존 유지) */}
         <div className="flex flex-col lg:grid lg:grid-cols-5 gap-6">
-          
-          {/* 
-            ⭐️ [LEFT COLUMN] 캘린더 & 위젯 
-            Mobile: order-2 (버튼들 아래로 내림)
-            Desktop: order-1 (왼쪽에 배치, 기존 유지)
-          */}
           <div className="lg:col-span-4 flex flex-col h-full gap-6 order-2 lg:order-1">
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 relative">
               <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
@@ -231,18 +259,10 @@ export default function DashboardClient({
               </h2>
               <CalendarView targetUser={selectedTeamMember} />
             </div>
-
             <DashboardWidgets />
           </div>
 
-          {/* 
-            ⭐️ [RIGHT COLUMN] 버튼 & 직원 리스트
-            Mobile: order-1 (캘린더 위로 올림)
-            Desktop: order-2 (오른쪽에 배치, 기존 유지)
-          */}
           <div className="lg:col-span-1 space-y-6 order-1 lg:order-2">
-            
-            {/* 관리자 결재함 */}
             <button 
               onClick={() => setIsApprovalOpen(true)}
               className="w-full bg-gray-800 hover:bg-gray-900 text-white p-4 rounded-xl shadow-lg flex items-center justify-between group transition-all"
@@ -255,7 +275,6 @@ export default function DashboardClient({
                   <div className="text-sm font-bold">결재함 열기</div>
                 </div>
               </div>
-              
               {pendingApprovalCount > 0 && (
                 <div className="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full animate-pulse">
                   {pendingApprovalCount}
@@ -263,7 +282,6 @@ export default function DashboardClient({
               )}
             </button>
 
-            {/* 내 근태 관리 */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
               <div className="p-4 border-b border-gray-100 bg-gray-50/50">
                 <h3 className="font-bold text-gray-800 flex items-center gap-2">
@@ -290,9 +308,7 @@ export default function DashboardClient({
                     </span>
                   </button>
                 </div>
-
                 <div className="h-px bg-gray-100"></div>
-
                 <div className="space-y-2">
                   <button 
                     onClick={() => setIsOvertimeOpen(true)}
@@ -314,7 +330,6 @@ export default function DashboardClient({
               </div>
             </div>
 
-            {/* 전체 근태 조회 버튼 */}
             <Link 
               href="/schedule"
               className="w-full bg-white hover:bg-gray-50 p-4 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between group transition-all"
@@ -331,13 +346,11 @@ export default function DashboardClient({
               <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-gray-500 transition-colors" />
             </Link>
 
-            {/* 직원 리스트 위젯 */}
             <TeamListWidget 
               employees={employees} 
               onSelectUser={setSelectedTeamMember} 
               selectedUser={selectedTeamMember} 
             />
-
           </div>
         </div>
       </div>

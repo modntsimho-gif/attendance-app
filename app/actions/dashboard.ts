@@ -75,8 +75,6 @@ export async function getDashboardData() {
   try {
     // ---------------------------------------------------------
     // 1. [휴가 데이터 통합 조회]
-    //    오늘 포함 미래에 끝나는 모든 휴가를 가져와서 메모리에서 필터링합니다.
-    //    (변경/취소 이력 추적을 위해 status 필터링 없이 가져옵니다)
     // ---------------------------------------------------------
     const { data: rawLeaves } = await supabase
       .from("leave_requests")
@@ -84,23 +82,23 @@ export async function getDashboardData() {
         id, leave_type, start_date, end_date, status, request_type, created_at, user_id, original_leave_request_id,
         profiles!inner ( name, department, position, avatar_url )
       `)
-      .gte("end_date", kstDateStr); // 종료일이 오늘 이후인 것들 (오늘 진행중인 것 포함)
+      .gte("end_date", kstDateStr);
 
-    // ⭐️ 데이터 정제 (최신 상태만 남김)
+    // ⭐️ 데이터 정제
     const validLeaves = filterValidLeaves(rawLeaves || []);
 
     // ---------------------------------------------------------
-    // 2. [데이터 분류] 정제된 validLeaves를 용도에 맞게 나눔
+    // 2. [데이터 분류]
     // ---------------------------------------------------------
 
-    // A. [오늘] 휴가자 (승인됨 + 오늘 날짜가 기간 내 포함)
+    // A. [오늘] 휴가자
     const todayLeaves = validLeaves.filter(l => 
       l.status === 'approved' && 
       l.start_date <= kstDateStr && 
       l.end_date >= kstDateStr
     );
 
-    // B. [나의] 다음 휴가 (승인됨 + 시작일이 오늘 이후 + 내 아이디)
+    // B. [나의] 다음 휴가
     let myNextLeave = null;
     if (user) {
       const myFutureLeaves = validLeaves
@@ -109,14 +107,14 @@ export async function getDashboardData() {
           l.status === 'approved' && 
           l.start_date > kstDateStr
         )
-        .sort((a, b) => a.start_date.localeCompare(b.start_date)); // 가까운 날짜순
+        .sort((a, b) => a.start_date.localeCompare(b.start_date));
       
       if (myFutureLeaves.length > 0) {
         myNextLeave = myFutureLeaves[0];
       }
     }
 
-    // C. [미래] 동료들의 휴가 (승인됨 + 시작일이 오늘 이후 ~ 30일 이내)
+    // C. [미래] 동료들의 휴가
     const upcomingLeaves = validLeaves
       .filter(l => 
         l.status === 'approved' && 
@@ -124,10 +122,10 @@ export async function getDashboardData() {
         l.start_date <= futureDateStr
       )
       .sort((a, b) => a.start_date.localeCompare(b.start_date))
-      .slice(0, 10); // 최대 10개만
+      .slice(0, 10);
 
     // ---------------------------------------------------------
-    // 3. [공휴일] 조회 (단순 조회)
+    // 3. [공휴일] 조회
     // ---------------------------------------------------------
     const { data: holidays } = await supabase
       .from("public_holidays")
@@ -147,4 +145,40 @@ export async function getDashboardData() {
     console.error("대시보드 데이터 조회 실패:", error);
     return { todayLeaves: [], myNextLeave: null, holidays: [], upcomingLeaves: [] };
   }
+}
+
+// ⭐️ [NEW] 올해 기준 연차 정보 가져오기 (대시보드용)
+export async function getMyCurrentYearStats() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const currentYear = new Date().getFullYear();
+
+  // 프로필과 연차 할당 테이블(Join) 조회
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select(`
+      total_leave_days,
+      annual_leave_allocations (
+        year,
+        total_days
+      )
+    `)
+    .eq("id", user.id)
+    .single();
+
+  if (!profile) return null;
+
+  // 1. 올해 설정된 연차가 있는지 확인
+  const thisYearAlloc = profile.annual_leave_allocations?.find(
+    (a: any) => a.year === currentYear
+  );
+
+  // 2. 있으면 그 값, 없으면 프로필 기본값 사용
+  const realTotalLeave = thisYearAlloc 
+    ? thisYearAlloc.total_days 
+    : (profile.total_leave_days || 0);
+
+  return { totalLeave: realTotalLeave };
 }

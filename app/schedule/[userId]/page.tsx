@@ -14,11 +14,11 @@ export default async function EmployeeDetailPage({ params }: PageProps) {
   const { userId } = await params;
 
   // 1. 병렬로 데이터 조회
-  const [profileRes, leaveRes, overtimeRes] = await Promise.all([
+  const [profileRes, leaveRes, overtimeRes, allocationRes] = await Promise.all([
     // (1) 프로필 조회
     supabase.from("profiles").select("*").eq("id", userId).single(),
     
-    // (2) 휴가 신청 내역 조회 (결재선 -> 프로필 이름 조인 추가)
+    // (2) 휴가 신청 내역 조회
     supabase
       .from("leave_requests")
       .select(`
@@ -33,7 +33,7 @@ export default async function EmployeeDetailPage({ params }: PageProps) {
       .eq("user_id", userId)
       .order("start_date", { ascending: false }),
 
-    // (3) 초과근무 내역 조회 (결재선 -> 프로필 이름 조인 추가)
+    // (3) 초과근무 내역 조회
     supabase
       .from("overtime_requests")
       .select(`
@@ -45,7 +45,14 @@ export default async function EmployeeDetailPage({ params }: PageProps) {
         )
       `)
       .eq("user_id", userId)
-      .order("work_date", { ascending: false })
+      .order("work_date", { ascending: false }),
+
+    // ⭐️ (4) [NEW] 연도별 연차 할당량 조회
+    supabase
+      .from("annual_leave_allocations")
+      .select("*")
+      .eq("user_id", userId)
+      .order("year", { ascending: false })
   ]);
 
   if (profileRes.error || !profileRes.data) {
@@ -57,35 +64,32 @@ export default async function EmployeeDetailPage({ params }: PageProps) {
     if (!items) return [];
     
     return items.map((item) => {
-      // approval_lines 배열 중에서 승인(approved) 또는 반려(rejected) 상태인 항목 찾기
       const deciderLine = item.approval_lines?.find(
         (line: any) => line.status === 'approved' || line.status === 'rejected'
       );
-
-      // profiles가 조인되어 있으므로 이름 추출
-      // (Supabase 조인 결과는 객체일 수도, 배열일 수도 있어 안전하게 처리)
       const approverProfile = Array.isArray(deciderLine?.profiles) 
         ? deciderLine?.profiles[0] 
         : deciderLine?.profiles;
 
       return {
         ...item,
-        approver_name: approverProfile?.name || null, // approver_name 필드 추가
+        approver_name: approverProfile?.name || null,
       };
     });
   };
 
   const profile = profileRes.data;
-  // 가공 함수를 통과시켜 approver_name을 포함시킴
   const leaves = processApprover(leaveRes.data || []);
   const overtimes = processApprover(overtimeRes.data || []);
+  const allocations = allocationRes.data || []; // 연도별 할당 정보
 
-  // 2. Client Component로 데이터 전달 및 렌더링
+  // 2. Client Component로 데이터 전달
   return (
     <EmployeeDetailClient 
       profile={profile}
       leaves={leaves}
       overtimes={overtimes}
+      allocations={allocations} // ⭐️ 전달
     />
   );
 }

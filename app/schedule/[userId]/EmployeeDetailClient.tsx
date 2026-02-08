@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, Calendar, Clock, ChevronRight, History, GitCommit, Link2, UserCheck } from "lucide-react";
+import { ArrowLeft, Calendar, Clock, ChevronRight, History, GitCommit, Link2, UserCheck, Filter } from "lucide-react";
 import { useState, useMemo } from "react";
 import LeaveApplicationModal from "@/components/LeaveApplicationModal"; 
 import OvertimeApplicationModal from "@/components/OvertimeApplicationModal"; 
@@ -10,9 +10,10 @@ interface EmployeeDetailClientProps {
   profile: any;
   leaves: any[];
   overtimes: any[];
+  allocations: any[]; // ⭐️ 추가된 Prop
 }
 
-// 그룹화 함수
+// 그룹화 함수 (기존 유지)
 const groupHistory = (data: any[], idField: string, parentField: string) => {
   if (!data || data.length === 0) return [];
 
@@ -50,15 +51,57 @@ const groupHistory = (data: any[], idField: string, parentField: string) => {
   return result.sort((a, b) => new Date(b[0].created_at).getTime() - new Date(a[0].created_at).getTime());
 };
 
-export default function EmployeeDetailClient({ profile, leaves, overtimes }: EmployeeDetailClientProps) {
+export default function EmployeeDetailClient({ profile, leaves, overtimes, allocations }: EmployeeDetailClientProps) {
+  const currentYear = new Date().getFullYear();
+  
+  // ⭐️ [STATE] 선택된 연도 (기본값: 올해)
+  const [selectedYear, setSelectedYear] = useState(currentYear);
+
   const [selectedLeave, setSelectedLeave] = useState<any>(null);
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
 
   const [selectedOvertime, setSelectedOvertime] = useState<any>(null);
   const [isOvertimeModalOpen, setIsOvertimeModalOpen] = useState(false);
 
-  const groupedLeaves = useMemo(() => groupHistory(leaves, 'id', 'original_leave_request_id'), [leaves]);
-  const groupedOvertimes = useMemo(() => groupHistory(overtimes, 'id', 'original_overtime_request_id'), [overtimes]);
+  // ⭐️ [MEMO] 연도별 데이터 필터링 및 계산
+  const { filteredLeaves, filteredOvertimes, yearStats } = useMemo(() => {
+    const yearStr = selectedYear.toString();
+
+    // 1. 리스트 필터링 (시작일 기준)
+    const leavesInYear = leaves.filter(l => l.start_date && l.start_date.startsWith(yearStr));
+    const overtimesInYear = overtimes.filter(o => o.work_date && o.work_date.startsWith(yearStr));
+
+    // 2. 총 연차 (Allocation 테이블 우선 확인 -> 없으면 프로필(올해인 경우만) -> 0)
+    const allocData = allocations.find(a => a.year === selectedYear);
+    let totalAnnualLeave = 0;
+    
+    if (allocData) {
+      totalAnnualLeave = allocData.total_days;
+    } else if (selectedYear === currentYear) {
+      // 할당 정보가 없는데 올해라면, 프로필의 현재 스냅샷 사용
+      totalAnnualLeave = profile.total_leave_days || 0;
+    }
+
+    // 3. 사용 연차 계산 (승인된 건만 합산)
+    // 주의: 취소된 건은 제외, 'approved' 상태인 것만 계산
+    const usedAnnualLeave = leavesInYear
+      .filter(l => l.status === 'approved' && l.leave_type === 'annual') // 연차(annual)만 계산 (반차 포함)
+      .reduce((sum, l) => sum + Number(l.total_leave_days), 0);
+
+    return {
+      filteredLeaves: leavesInYear,
+      filteredOvertimes: overtimesInYear,
+      yearStats: {
+        total: totalAnnualLeave,
+        used: usedAnnualLeave,
+        remaining: totalAnnualLeave - usedAnnualLeave
+      }
+    };
+  }, [selectedYear, leaves, overtimes, allocations, profile, currentYear]);
+
+  // 그룹화는 필터링된 데이터로 수행
+  const groupedLeaves = useMemo(() => groupHistory(filteredLeaves, 'id', 'original_leave_request_id'), [filteredLeaves]);
+  const groupedOvertimes = useMemo(() => groupHistory(filteredOvertimes, 'id', 'original_overtime_request_id'), [filteredOvertimes]);
 
   const handleLeaveClick = (item: any) => {
     setSelectedLeave(item);
@@ -88,6 +131,13 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes }: Emp
     }
   };
 
+  // 연도 목록 생성 (데이터가 있는 연도 + 현재 연도)
+  const availableYears = Array.from(new Set([
+    currentYear,
+    ...allocations.map(a => a.year),
+    ...leaves.map(l => parseInt(l.start_date.split('-')[0]))
+  ])).sort((a, b) => b - a);
+
   return (
     <>
       <main className="min-h-screen bg-gray-50 p-6">
@@ -110,20 +160,40 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes }: Emp
                 </div>
               </div>
 
-              {/* 잔여 휴가 정보 */}
-              <div className="flex gap-4 w-full md:w-auto">
-                <div className="flex-1 md:flex-none bg-blue-50 p-4 rounded-lg border border-blue-100 text-center min-w-[120px]">
-                  <div className="text-xs text-blue-600 font-bold mb-1">잔여 연차</div>
-                  <div className="text-xl font-bold text-gray-800">
-                    {Number(profile.total_leave_days - profile.used_leave_days).toFixed(2)}
-                    <span className="text-xs font-normal text-gray-400 ml-1">/ {Number(profile.total_leave_days).toFixed(1)}</span>
-                  </div>
+              {/* ⭐️ 연도 선택 및 통계 */}
+              <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto items-end md:items-center">
+                
+                {/* 연도 선택기 */}
+                <div className="relative">
+                  <select 
+                    value={selectedYear} 
+                    onChange={(e) => setSelectedYear(Number(e.target.value))}
+                    className="appearance-none bg-white border border-gray-300 text-gray-700 py-2 pl-4 pr-10 rounded-lg font-bold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent cursor-pointer"
+                  >
+                    {availableYears.map(year => (
+                      <option key={year} value={year}>{year}년</option>
+                    ))}
+                  </select>
+                  <Filter className="absolute right-3 top-2.5 w-4 h-4 text-gray-400 pointer-events-none" />
                 </div>
-                <div className="flex-1 md:flex-none bg-orange-50 p-4 rounded-lg border border-orange-100 text-center min-w-[120px]">
-                  <div className="text-xs text-orange-600 font-bold mb-1">잔여 보상휴가</div>
-                  <div className="text-xl font-bold text-gray-800">
-                    {Number(profile.extra_leave_days - profile.extra_used_leave_days).toFixed(2)}
-                    <span className="text-xs font-normal text-gray-400 ml-1">/ {Number(profile.extra_leave_days).toFixed(1)}</span>
+
+                <div className="flex gap-4 w-full md:w-auto">
+                  {/* ⭐️ 연차 정보 (선택된 연도 기준) */}
+                  <div className="flex-1 md:flex-none bg-blue-50 p-4 rounded-lg border border-blue-100 text-center min-w-[140px]">
+                    <div className="text-xs text-blue-600 font-bold mb-1">{selectedYear}년 잔여 연차</div>
+                    <div className="text-xl font-bold text-gray-800">
+                      {Number(yearStats.remaining).toFixed(2)}
+                      <span className="text-xs font-normal text-gray-400 ml-1">/ {Number(yearStats.total).toFixed(1)}</span>
+                    </div>
+                  </div>
+
+                  {/* 보상휴가는 누적 개념이므로 프로필의 현재 잔고 표시 (연도 필터링 애매함) */}
+                  <div className="flex-1 md:flex-none bg-orange-50 p-4 rounded-lg border border-orange-100 text-center min-w-[140px]">
+                    <div className="text-xs text-orange-600 font-bold mb-1">현재 잔여 보상휴가</div>
+                    <div className="text-xl font-bold text-gray-800">
+                      {Number(profile.extra_leave_days - profile.extra_used_leave_days).toFixed(2)}
+                      <span className="text-xs font-normal text-gray-400 ml-1">/ {Number(profile.extra_leave_days).toFixed(1)}</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -132,15 +202,17 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes }: Emp
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             
-            {/* 1. 휴가 신청 내역 (타임라인) */}
+            {/* 1. 휴가 신청 내역 (타임라인) - 연도 필터 적용됨 */}
             <section className="space-y-4">
               <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                 <Calendar className="w-5 h-5 text-blue-600" />
-                휴가 사용 내역
+                {selectedYear}년 휴가 사용 내역
               </h2>
               
               {groupedLeaves.length === 0 ? (
-                <div className="bg-white rounded-xl p-8 text-center text-gray-400 border border-gray-200">내역 없음</div>
+                <div className="bg-white rounded-xl p-8 text-center text-gray-400 border border-gray-200">
+                  {selectedYear}년도 내역이 없습니다.
+                </div>
               ) : (
                 <div className="space-y-4">
                   {groupedLeaves.map((group, groupIdx) => (
@@ -157,7 +229,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes }: Emp
                         {group.map((item, idx) => {
                           const isLatest = idx === 0;
                           
-                          // 원천 초과근무 찾기 (overtimes 배열에서 검색)
                           const sourceOvertime = item.overtime_request_id 
                             ? overtimes.find(ot => ot.id === item.overtime_request_id) 
                             : null;
@@ -196,7 +267,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes }: Emp
                                 <div className="text-sm text-gray-600 mb-2">
                                   <div className="truncate w-full text-xs text-gray-500 mb-1">{item.reason}</div>
                                   
-                                  {/* 원천 초과근무 연결 버튼 */}
                                   {sourceOvertime && (
                                     <div 
                                       onClick={(e) => {
@@ -211,7 +281,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes }: Emp
                                     </div>
                                   )}
 
-                                  {/* ⭐️ 결재자 정보 표시 (서버에서 가공된 approver_name 사용) */}
                                   {item.approver_name && (
                                     <div className="flex items-center gap-1.5 mt-1 text-xs text-gray-500 bg-gray-100/50 px-2 py-1 rounded w-fit">
                                       <UserCheck className="w-3 h-3 text-gray-400" />
@@ -239,15 +308,17 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes }: Emp
               )}
             </section>
 
-            {/* 2. 초과근무 내역 (타임라인) */}
+            {/* 2. 초과근무 내역 (타임라인) - 연도 필터 적용됨 */}
             <section className="space-y-4">
               <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                 <Clock className="w-5 h-5 text-orange-600" />
-                초과근무 이력
+                {selectedYear}년 초과근무 이력
               </h2>
               
               {groupedOvertimes.length === 0 ? (
-                <div className="bg-white rounded-xl p-8 text-center text-gray-400 border border-gray-200">내역 없음</div>
+                <div className="bg-white rounded-xl p-8 text-center text-gray-400 border border-gray-200">
+                  {selectedYear}년도 내역이 없습니다.
+                </div>
               ) : (
                 <div className="space-y-4">
                   {groupedOvertimes.map((group, groupIdx) => (
@@ -300,7 +371,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes }: Emp
                                     {item.work_date} ({item.start_time.slice(0,5)}~{item.end_time.slice(0,5)})
                                   </div>
                                   
-                                  {/* ⭐️ 결재자 정보 표시 */}
                                   {item.approver_name && (
                                     <div className="flex items-center gap-1.5 mt-1.5 text-xs text-gray-500 bg-gray-100/50 px-2 py-1 rounded w-fit">
                                       <UserCheck className="w-3 h-3 text-gray-400" />
