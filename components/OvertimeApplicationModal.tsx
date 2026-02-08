@@ -276,7 +276,7 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
       const date = new Date(workDate);
       setIsHoliday(date.getDay() === 0);
       if (title.startsWith("초과근무신청서_")) {
-          setTitle(`초과근무신청서_${workDate}`);
+          setTitle(`초과근무신청서_일자`);
       }
     }
   }, [workDate, isViewMode, requestType]);
