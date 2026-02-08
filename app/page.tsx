@@ -59,7 +59,7 @@ export default async function DashboardPage() {
       role={profile?.role} 
       
       // 기본 연차
-      totalLeave={profile?.total_leave_days || 15}
+      totalLeave={profile?.total_leave_days || 0}
       usedLeave={profile?.used_leave_days || 0}
       
       // 보상 휴가 (DB 값 그대로 사용)

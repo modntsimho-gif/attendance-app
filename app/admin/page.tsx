@@ -1,13 +1,23 @@
 "use client";
 
 import { useEffect, useState } from "react";
+// ⭐️ [수정됨] 모든 액션을 "./actions"에서 한 번에 가져옵니다.
 import { 
-  getEmployees, updateEmployee, getHolidays, addHoliday, deleteHoliday,
-  getEmployeeAllocations, saveEmployeeAllocation, deleteEmployeeAllocation 
+  getEmployees, 
+  updateEmployee, 
+  getHolidays, 
+  addHoliday, 
+  deleteHoliday,
+  getEmployeeAllocations, 
+  saveEmployeeAllocation, 
+  deleteEmployeeAllocation,
+  resetAllUsedLeaveDays // 👈 여기에 추가했습니다.
 } from "./actions";
+
 import { 
   Loader2, Save, X, Edit, UserCheck, Search, 
-  ArrowLeft, CalendarDays, Trash2, Plus, Settings2, UserMinus 
+  ArrowLeft, CalendarDays, Trash2, Plus, Settings2, UserMinus,
+  RotateCcw, AlertTriangle 
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -30,7 +40,7 @@ type Profile = {
   position: string | null;
   role: string;
   join_date: string | null;
-  resigned_at: string | null; // ⭐️ 퇴사일 필드 추가
+  resigned_at: string | null;
   total_leave_days: number;
   used_leave_days: number;
   extra_leave_days: number;
@@ -61,6 +71,9 @@ export default function AdminPage() {
 
   const [newHoliday, setNewHoliday] = useState({ date: "", title: "" });
 
+  // ⭐️ 초기화 로딩 상태
+  const [isResetting, setIsResetting] = useState(false);
+
   useEffect(() => {
     loadData();
   }, []);
@@ -81,6 +94,33 @@ export default function AdminPage() {
     }
   };
 
+  // ⭐️ 연차 초기화 핸들러
+  const handleResetAllLeaves = async () => {
+    const confirmed = confirm(
+      "⚠️ [주의] 모든 직원의 '연차 사용일(used_leave_days)'을 0으로 초기화하시겠습니까?\n\n" +
+      "• 이 작업은 되돌릴 수 없습니다.\n" +
+      "• 주로 새해(1월 1일)에 작년 사용 기록을 리셋할 때 사용합니다."
+    );
+
+    if (!confirmed) return;
+
+    setIsResetting(true);
+    try {
+      const res = await resetAllUsedLeaveDays();
+      if (res.error) {
+        alert("실패: " + res.error);
+      } else {
+        alert("✅ 모든 직원의 연차 사용일이 0으로 초기화되었습니다.");
+        loadData(); // 데이터 새로고침
+      }
+    } catch (e) {
+      console.error(e);
+      alert("오류가 발생했습니다.");
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
   const handleEdit = async (user: Profile) => {
     setEditingUser({ ...user });
     
@@ -98,7 +138,6 @@ export default function AdminPage() {
   const handleSaveProfile = async () => {
     if (!editingUser) return;
     
-    // 퇴사일이 설정되어 있다면 경고 메시지 강화
     const confirmMsg = editingUser.resigned_at 
       ? `${editingUser.name} 님을 퇴사 처리(또는 정보 수정) 하시겠습니까?\n퇴사일: ${editingUser.resigned_at}`
       : `${editingUser.name} 님의 기본 정보를 수정하시겠습니까?`;
@@ -208,7 +247,24 @@ export default function AdminPage() {
         {/* 직원 관리 탭 */}
         {activeTab === "employees" && (
           <>
-            <div className="flex justify-end">
+            {/* ⭐️ 검색창 및 초기화 버튼 영역 */}
+            <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+              
+              {/* ⭐️ 연차 초기화 버튼 */}
+              <button
+                onClick={handleResetAllLeaves}
+                disabled={isResetting}
+                className="flex items-center gap-2 px-4 py-2 bg-white border border-red-200 text-red-600 rounded-lg text-sm font-bold hover:bg-red-50 hover:border-red-300 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isResetting ? (
+                  <RotateCcw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4" />
+                )}
+                {isResetting ? "초기화 중..." : "전직원 연차 사용일 초기화 (새해용)"}
+              </button>
+
+              {/* 검색창 */}
               <div className="relative w-64">
                 <Search className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
                 <input 
@@ -232,14 +288,12 @@ export default function AdminPage() {
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {filteredEmployees.map((user) => (
-                    // ⭐️ 퇴사자 스타일 적용 (배경색, 투명도)
                     <tr key={user.id} className={`hover:bg-gray-50 ${user.resigned_at ? "bg-gray-100/50" : ""}`}>
                       <td className="px-6 py-4 align-top">
                         <div className="flex items-center gap-2">
                           <div className={`font-bold text-base ${user.resigned_at ? "text-gray-400 line-through" : "text-gray-900"}`}>
                             {user.name}
                           </div>
-                          {/* ⭐️ 퇴사 배지 */}
                           {user.resigned_at && (
                             <span className="px-2 py-0.5 bg-red-100 text-red-600 text-[10px] font-bold rounded-full">
                               퇴사 ({user.resigned_at})
@@ -291,7 +345,7 @@ export default function AdminPage() {
         {/* 공휴일 관리 탭 */}
         {activeTab === "holidays" && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit">
+             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit">
               <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
                 <Plus className="w-5 h-5 text-red-500" /> 공휴일 추가
               </h3>
