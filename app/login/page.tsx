@@ -3,9 +3,8 @@
 import { useState } from "react";
 import Image from "next/image"; 
 import { login, signup, resetPassword } from "./actions"; 
-import { Loader2, User, Lock, Mail, Building, IdCard, ChevronDown, Calendar, ShieldCheck, ArrowLeft, CheckCircle2 } from "lucide-react"; // ⭐️ CheckCircle2 아이콘 추가
+import { Loader2, User, Lock, Mail, Building, IdCard, ChevronDown, Calendar, ShieldCheck, ArrowLeft } from "lucide-react"; 
 
-// ... (상수 DEPARTMENTS, POSITIONS, ROLES 등 기존 동일) ...
 const DEPARTMENTS = ["CEO", "대외협력팀", "소원사업팀", "경영지원팀"];
 const POSITIONS = ["간사", "대리", "과장", "차장" ,"팀장", "사무총장"];
 const ROLES = [
@@ -19,37 +18,21 @@ export default function LoginPage() {
   const [view, setView] = useState<ViewMode>("login");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  
-  // ⭐️ 성공 상태를 더 명확하게 관리하기 위해 boolean이나 구체적 string 사용
-  const [isEmailSent, setIsEmailSent] = useState(false); 
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const handleSubmit = async (formData: FormData) => {
     setLoading(true);
     setMessage(null);
     setSuccessMessage(null);
-    setIsEmailSent(false);
 
     try {
       if (view === "login") {
         const error = await login(formData);
-        if (error) {
-          // 이메일 미인증 에러 처리 (Supabase 에러 메시지에 따라 다를 수 있음)
-          if (error.includes("Email not confirmed")) {
-            setMessage("이메일 인증이 완료되지 않았습니다. 메일함을 확인해주세요.");
-          } else {
-            setMessage(error);
-          }
-        }
+        if (error) setMessage(error);
       } else if (view === "signup") {
         const error = await signup(formData);
-        if (error) {
-          setMessage(error);
-        } else {
-          // ⭐️ 회원가입 성공 시 로직
-          setIsEmailSent(true); // 이메일 전송 완료 화면 보여주기
-          setSuccessMessage("인증 메일이 발송되었습니다!");
-        }
+        // 에러가 없으면 서버 액션에서 redirect("/") 하므로 여기 코드는 실행되지 않음
+        if (error) setMessage(error);
       } else if (view === "reset") {
         const result = await resetPassword(formData);
         if (result === "success") {
@@ -59,44 +42,14 @@ export default function LoginPage() {
         }
       }
     } catch (e) {
+      // redirect()가 발생하면 에러처럼 잡히는 경우가 있어서 예외 처리
       const errStr = String(e);
-      if (errStr.includes("NEXT_REDIRECT")) return;
+      if (errStr.includes("NEXT_REDIRECT")) return; 
       setMessage("오류가 발생했습니다.");
     } finally {
       setLoading(false);
     }
   };
-
-  // ⭐️ 이메일 인증 안내 화면 (회원가입 성공 직후)
-  if (isEmailSent && view === "signup") {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-        <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-gray-100 p-8 text-center">
-          <div className="flex justify-center mb-6">
-            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
-              <CheckCircle2 className="w-8 h-8 text-green-600" />
-            </div>
-          </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">메일함을 확인해주세요!</h2>
-          <p className="text-gray-600 mb-8">
-            입력하신 이메일로 인증 링크를 보냈습니다.<br/>
-            링크를 클릭하면 회원가입이 완료됩니다.
-          </p>
-          <button
-            onClick={() => {
-              setIsEmailSent(false);
-              setView("login");
-              setMessage(null);
-              setSuccessMessage(null);
-            }}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all"
-          >
-            로그인 화면으로 이동
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
@@ -105,8 +58,9 @@ export default function LoginPage() {
         {/* 헤더 */}
         <div className="bg-white p-8 pb-6 text-center border-b border-gray-100">
           <div className="flex justify-center mb-4">
-            <div className="relative w-48 h-16">
-              <Image src="/logo.png" alt="Make-A-Wish Korea" fill className="object-contain" priority />
+            {/* 로고 이미지가 없다면 텍스트로 대체되거나 빈 박스가 보일 수 있음 */}
+            <div className="relative w-48 h-16 flex items-center justify-center">
+               <Image src="/logo.png" alt="Make-A-Wish Korea" fill className="object-contain" priority />
             </div>
           </div>
           <h1 className="text-xl font-bold text-blue-900">근태 관리 시스템</h1>
