@@ -3,8 +3,9 @@
 import { useState } from "react";
 import Image from "next/image"; 
 import { login, signup, resetPassword } from "./actions"; 
-import { Loader2, User, Lock, Mail, Building, IdCard, ChevronDown, Calendar, ShieldCheck, ArrowLeft } from "lucide-react";
+import { Loader2, User, Lock, Mail, Building, IdCard, ChevronDown, Calendar, ShieldCheck, ArrowLeft, CheckCircle2 } from "lucide-react"; // ⭐️ CheckCircle2 아이콘 추가
 
+// ... (상수 DEPARTMENTS, POSITIONS, ROLES 등 기존 동일) ...
 const DEPARTMENTS = ["CEO", "대외협력팀", "소원사업팀", "경영지원팀"];
 const POSITIONS = ["간사", "대리", "과장", "차장" ,"팀장", "사무총장"];
 const ROLES = [
@@ -18,21 +19,37 @@ export default function LoginPage() {
   const [view, setView] = useState<ViewMode>("login");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  
+  // ⭐️ 성공 상태를 더 명확하게 관리하기 위해 boolean이나 구체적 string 사용
+  const [isEmailSent, setIsEmailSent] = useState(false); 
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const handleSubmit = async (formData: FormData) => {
     setLoading(true);
     setMessage(null);
     setSuccessMessage(null);
+    setIsEmailSent(false);
 
     try {
       if (view === "login") {
         const error = await login(formData);
-        if (error) setMessage(error);
+        if (error) {
+          // 이메일 미인증 에러 처리 (Supabase 에러 메시지에 따라 다를 수 있음)
+          if (error.includes("Email not confirmed")) {
+            setMessage("이메일 인증이 완료되지 않았습니다. 메일함을 확인해주세요.");
+          } else {
+            setMessage(error);
+          }
+        }
       } else if (view === "signup") {
         const error = await signup(formData);
-        if (error) setMessage(error);
-        else setSuccessMessage("가입 성공! 이메일을 확인해주세요.");
+        if (error) {
+          setMessage(error);
+        } else {
+          // ⭐️ 회원가입 성공 시 로직
+          setIsEmailSent(true); // 이메일 전송 완료 화면 보여주기
+          setSuccessMessage("인증 메일이 발송되었습니다!");
+        }
       } else if (view === "reset") {
         const result = await resetPassword(formData);
         if (result === "success") {
@@ -49,6 +66,37 @@ export default function LoginPage() {
       setLoading(false);
     }
   };
+
+  // ⭐️ 이메일 인증 안내 화면 (회원가입 성공 직후)
+  if (isEmailSent && view === "signup") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+        <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-gray-100 p-8 text-center">
+          <div className="flex justify-center mb-6">
+            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
+              <CheckCircle2 className="w-8 h-8 text-green-600" />
+            </div>
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">메일함을 확인해주세요!</h2>
+          <p className="text-gray-600 mb-8">
+            입력하신 이메일로 인증 링크를 보냈습니다.<br/>
+            링크를 클릭하면 회원가입이 완료됩니다.
+          </p>
+          <button
+            onClick={() => {
+              setIsEmailSent(false);
+              setView("login");
+              setMessage(null);
+              setSuccessMessage(null);
+            }}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all"
+          >
+            로그인 화면으로 이동
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
@@ -72,7 +120,7 @@ export default function LoginPage() {
         {/* 폼 영역 */}
         <div className="p-8 pt-6">
           
-          {/* 탭 버튼 (로그인/회원가입 모드일 때만 표시) */}
+          {/* 탭 버튼 */}
           {view !== "reset" && (
             <div className="flex mb-6 bg-gray-100 p-1 rounded-lg">
               <button
@@ -97,7 +145,7 @@ export default function LoginPage() {
           )}
 
           <form action={handleSubmit} className="space-y-4">
-            {/* 이메일 (모든 모드 공통) */}
+            {/* 이메일 */}
             <div className="space-y-1">
               <label className="text-xs font-bold text-gray-500 ml-1">이메일</label>
               <div className="relative">
@@ -112,12 +160,11 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* 비밀번호 (로그인, 회원가입 시에만 표시) */}
+            {/* 비밀번호 */}
             {view !== "reset" && (
               <div className="space-y-1">
                 <div className="flex justify-between items-center">
                   <label className="text-xs font-bold text-gray-500 ml-1">비밀번호</label>
-                  {/* 비밀번호 찾기 버튼 (로그인 모드일 때만) */}
                   {view === "login" && (
                     <button 
                       type="button"
@@ -141,7 +188,7 @@ export default function LoginPage() {
               </div>
             )}
 
-            {/* 회원가입 추가 정보 (회원가입 시에만 표시) */}
+            {/* 회원가입 추가 정보 */}
             {view === "signup" && (
               <div className="space-y-4 animate-in slide-in-from-top-2 duration-300">
                 <div className="h-px bg-gray-100 my-2"></div>
