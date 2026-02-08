@@ -68,7 +68,6 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
   const [approvedOvertimes, setApprovedOvertimes] = useState<OvertimeRecord[]>([]);
   const [selectedOriginalOtId, setSelectedOriginalOtId] = useState<string>("");
   
-  // 조회 모드용 원본 초과근무 데이터 State
   const [originalOtForView, setOriginalOtForView] = useState<OvertimeRecord | null>(null);
 
   const [planRows, setPlanRows] = useState([{ id: 1, startTime: "", endTime: "", content: "" }]);
@@ -85,7 +84,6 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
   const [recognizedHours, setRecognizedHours] = useState(0); 
   const [recognizedDays, setRecognizedDays] = useState("0.00"); 
 
-  // 1. 초기화 및 데이터 로드 (모달 열릴 때)
   useEffect(() => {
     if (isOpen) {
       isSubmittingRef.current = false;
@@ -103,7 +101,6 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
         
         setRequestType(initialData.request_type || "create");
         
-        // 원본 데이터 불러오기 로직
         if (initialData.original_overtime_request_id) {
           setSelectedOriginalOtId(initialData.original_overtime_request_id);
           
@@ -176,7 +173,6 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
     }
   }, [isOpen, isViewMode, initialData]);
 
-  // ⭐️ 2. 변경/취소 시 '유효한(살아있는)' 승인 내역만 불러오는 로직 (수정됨)
   useEffect(() => {
     if (!isViewMode && (requestType === 'update' || requestType === 'cancel') && isOpen) {
       
@@ -184,7 +180,6 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
 
-        // 1. 모든 내역 가져오기 (히스토리 추적용)
         const { data } = await supabase
           .from("overtime_requests")
           .select("*")
@@ -192,7 +187,6 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
           .order("created_at", { ascending: false });
         
         if (data) {
-          // 2. 그룹화 로직
           const itemMap = new Map<string, OvertimeRecord>();
           const parentMap = new Map<string, string>();
 
@@ -203,7 +197,6 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
             }
           });
 
-          // 루트 ID 찾기 함수
           const findRootId = (currentId: string): string => {
             let pointer = currentId;
             while (parentMap.has(pointer)) {
@@ -213,7 +206,6 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
             return pointer;
           };
 
-          // 그룹핑
           const groups: Record<string, OvertimeRecord[]> = {};
           data.forEach((item: any) => {
             const rootId = findRootId(item.id);
@@ -221,18 +213,12 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
             groups[rootId].push(item);
           });
 
-          // 3. 유효한(살아있는) 승인 건만 필터링
           const validOvertimes: OvertimeRecord[] = [];
 
           Object.values(groups).forEach((group) => {
-            // 최신순 정렬
             group.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-            const latest = group[0]; // 최종 상태
+            const latest = group[0]; 
 
-            // ✅ 조건: 
-            // 1. 최종 상태가 '승인'이어야 함
-            // 2. 최종 요청 타입이 '취소'가 아니어야 함
-            // 3. 아직 사용하지 않은 시간이어야 함 (used_hours가 0이거나 null)
             const isUnused = (latest.used_hours || 0) === 0;
 
             if (
@@ -250,11 +236,9 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
 
       fetchValidOvertimes();
       
-      // 입력 폼 초기화
       setSelectedOriginalOtId("");
       
     } else if (requestType === 'create') {
-      // 신청 탭으로 돌아오면 초기화
       setReason("");
       setSelectedOriginalOtId("");
       setApprovedOvertimes([]);
@@ -456,6 +440,7 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
 
   if (!isOpen) return null;
 
+  // ⭐️ [수정] 비활성화 시 opacity-60 대신 pointer-events-none만 사용하고 색상은 개별 제어
   const isFormDisabled = isViewMode || requestType === 'cancel';
   
   const isOriginalRequired = requestType === 'update' || requestType === 'cancel';
@@ -469,12 +454,13 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
         {/* 헤더 */}
         <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
           <div>
-            <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+            {/* ⭐️ [수정] text-gray-800 -> text-gray-900 */}
+            <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
               <Clock className="w-6 h-6 text-blue-600" />
               {isViewMode ? "초과근무 신청서 상세" : "초과근무 신청서 작성"}
             </h2>
-            <div className="flex gap-3 mt-1 text-xs text-gray-500">
-              <span>문서번호: <span className="text-gray-400">{isViewMode ? `OT-${initialData.id.slice(0,8)}` : "자동생성"}</span></span>
+            <div className="flex gap-3 mt-1 text-xs text-gray-600">
+              <span>문서번호: <span className="text-gray-500">{isViewMode ? `OT-${initialData.id.slice(0,8)}` : "자동생성"}</span></span>
             </div>
           </div>
           <button onClick={onClose}><X className="w-6 h-6 text-gray-400" /></button>
@@ -506,7 +492,8 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
             {/* 결재선 섹션 */}
             <section>
               <div className="flex justify-between items-center mb-3">
-                <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                {/* ⭐️ [수정] text-gray-700 -> text-gray-800 */}
+                <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
                   <Users className="w-4 h-4" /> {isViewMode ? "결재 진행 현황" : "결재선 지정"}
                 </h3>
                 {!isViewMode && (
@@ -524,10 +511,11 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
               <div className="flex items-center gap-3 overflow-x-auto pb-2 relative">
                 <div className="min-w-[100px] p-3 border border-blue-200 bg-blue-50 rounded-lg text-center flex-shrink-0">
                   <div className="text-xs text-blue-600 font-bold mb-1">기안</div>
-                  <div className="text-sm font-bold text-gray-800">나 (본인)</div>
-                  <div className="text-xs text-gray-500">신청완료</div>
+                  {/* ⭐️ [수정] text-gray-800 -> text-gray-900 */}
+                  <div className="text-sm font-bold text-gray-900">나 (본인)</div>
+                  <div className="text-xs text-gray-600">신청완료</div>
                 </div>
-                <div className="text-gray-300">→</div>
+                <div className="text-gray-400">→</div>
                 
                 {approvers.map((app, idx) => (
                   <div key={app.id} className="flex items-center gap-3">
@@ -538,11 +526,12 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
                         app.status === 'rejected' ? 'bg-red-50 border-red-300' : 
                         !isViewMode ? 'bg-white border-blue-200 hover:border-blue-500 hover:shadow-md cursor-pointer' : 'bg-white border-blue-200'
                     }`}>
-                      <div className="text-xs text-gray-500 mb-1 flex justify-center items-center gap-1">
+                      {/* ⭐️ [수정] text-gray-500 -> text-gray-600 */}
+                      <div className="text-xs text-gray-600 mb-1 flex justify-center items-center gap-1">
                         결재 ({idx + 1}차) {isViewMode && renderStatusIcon(app.status)}
                       </div>
-                      <div className="text-sm font-bold text-gray-800">{app.name}</div>
-                      <div className="text-xs text-gray-500">{app.rank}</div>
+                      <div className="text-sm font-bold text-gray-900">{app.name}</div>
+                      <div className="text-xs text-gray-600">{app.rank}</div>
                       
                       {!isViewMode && (
                         <div className="absolute inset-0 flex items-center justify-center bg-white/80 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg">
@@ -565,13 +554,13 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
                         </button>
                       )}
                     </div>
-                    {idx < approvers.length - 1 && <div className="text-gray-300">→</div>}
+                    {idx < approvers.length - 1 && <div className="text-gray-400">→</div>}
                   </div>
                 ))}
 
                 {!isViewMode && approvers.length < 2 && (
                   <>
-                    {approvers.length > 0 && <div className="text-gray-300">→</div>}
+                    {approvers.length > 0 && <div className="text-gray-400">→</div>}
                     <button 
                       type="button"
                       onClick={handleAddClick}
@@ -592,7 +581,7 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
               
               {/* 신청 유형 선택 */}
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">신청 유형</label>
+                <label className="block text-sm font-bold text-gray-800 mb-2">신청 유형</label>
                 <div className="flex gap-4">
                   {REQUEST_TYPES.map((type) => {
                     const Icon = type.icon;
@@ -603,7 +592,7 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
                         className={`flex items-center gap-2 px-4 py-3 rounded-lg border cursor-pointer transition-all flex-1 justify-center ${
                           isSelected 
                             ? "bg-blue-50 border-blue-500 ring-1 ring-blue-500 text-blue-700" 
-                            : "bg-white border-gray-200 hover:bg-gray-50 text-gray-600"
+                            : "bg-white border-gray-200 hover:bg-gray-50 text-gray-700"
                         } ${isViewMode ? "cursor-default opacity-80" : ""}`}
                       >
                         <input 
@@ -626,7 +615,7 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
               {/* 변경/취소 대상 선택 섹션 */}
               {(requestType === 'update' || requestType === 'cancel') && (
                 <div className="animate-in fade-in slide-in-from-top-2">
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                  <label className="block text-sm font-bold text-gray-800 mb-2">
                     {requestType === 'update' ? "수정 대상 초과근무" : "취소 대상 초과근무"}
                     {isViewMode && <span className="text-xs font-normal text-gray-500 ml-2">(원본 데이터)</span>}
                   </label>
@@ -637,29 +626,29 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
                       <div className="p-4 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-between">
                         <div>
                           <div className="flex items-center gap-2 mb-1">
-                            <span className="text-xs font-bold bg-white border border-gray-200 text-gray-600 px-1.5 py-0.5 rounded">
+                            <span className="text-xs font-bold bg-white border border-gray-200 text-gray-700 px-1.5 py-0.5 rounded">
                               {originalOtForView.title}
                             </span>
-                            <span className="text-xs text-gray-400">
+                            <span className="text-xs text-gray-500">
                               {new Date(originalOtForView.created_at).toLocaleDateString()} 신청분
                             </span>
                           </div>
-                          <div className="text-sm font-bold text-gray-800 flex items-center gap-1">
+                          <div className="text-sm font-bold text-gray-900 flex items-center gap-1">
                             <CalendarIcon className="w-3.5 h-3.5 text-gray-500" />
                             {originalOtForView.work_date}
                             <span className="text-gray-300">|</span>
                             {originalOtForView.start_time?.slice(0,5)} ~ {originalOtForView.end_time?.slice(0,5)}
-                            <span className="text-xs font-normal text-gray-500 ml-1">
+                            <span className="text-xs font-normal text-gray-600 ml-1">
                               ({originalOtForView.recognized_hours}h 인정)
                             </span>
                           </div>
                         </div>
-                        <div className="text-xs font-bold text-gray-400 bg-white px-2 py-1 rounded border">
+                        <div className="text-xs font-bold text-gray-500 bg-white px-2 py-1 rounded border">
                           원본
                         </div>
                       </div>
                     ) : (
-                      <div className="text-sm text-gray-400 p-3 border rounded bg-gray-50">
+                      <div className="text-sm text-gray-500 p-3 border rounded bg-gray-50">
                         원본 초과근무 정보를 불러올 수 없습니다.
                       </div>
                     )
@@ -668,7 +657,7 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
                     <>
                       <div className="border border-gray-200 rounded-lg bg-gray-50 p-4 max-h-60 overflow-y-auto space-y-2">
                         {approvedOvertimes.length === 0 ? (
-                          <div className="text-center text-sm text-gray-400 py-4">
+                          <div className="text-center text-sm text-gray-500 py-4">
                             선택 가능한(미사용) 승인된 초과근무 내역이 없습니다.
                           </div>
                         ) : (
@@ -684,15 +673,15 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
                             >
                               <div className="flex-1">
                                 <div className="flex items-center gap-2 mb-1">
-                                  <span className="text-xs font-bold bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{ot.title}</span>
-                                  <span className="text-xs text-gray-400">{new Date(ot.created_at).toLocaleDateString()} 신청</span>
+                                  <span className="text-xs font-bold bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded">{ot.title}</span>
+                                  <span className="text-xs text-gray-500">{new Date(ot.created_at).toLocaleDateString()} 신청</span>
                                 </div>
-                                <div className="text-sm font-bold text-gray-800 flex items-center gap-1">
+                                <div className="text-sm font-bold text-gray-900 flex items-center gap-1">
                                   <CalendarIcon className="w-3.5 h-3.5 text-gray-500" />
                                   {ot.work_date}
                                   <span className="text-gray-300">|</span>
                                   {ot.start_time?.slice(0,5)} ~ {ot.end_time?.slice(0,5)}
-                                  <span className="text-xs font-normal text-gray-500 ml-1">({ot.recognized_hours}h 인정)</span>
+                                  <span className="text-xs font-normal text-gray-600 ml-1">({ot.recognized_hours}h 인정)</span>
                                 </div>
                               </div>
                               <div className="text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -716,22 +705,23 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
                 </div>
               )}
 
-              <div className={isFormDisabled ? "opacity-60 pointer-events-none grayscale" : ""}>
+              <div className={isFormDisabled ? "pointer-events-none grayscale" : ""}>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">제목</label>
+                  <label className="block text-sm font-bold text-gray-800 mb-2">제목</label>
+                  {/* ⭐️ [수정] text-gray-900 추가 및 disabled 스타일 개선 */}
                   <input 
                     type="text" 
                     name="title" 
                     disabled={isFormDisabled} 
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm disabled:bg-gray-100" 
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-600" 
                   />
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
                   <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-2">근무 일자</label>
+                    <label className="block text-sm font-bold text-gray-800 mb-2">근무 일자</label>
                     <div className="flex items-center gap-2">
                       <input 
                         type="date" 
@@ -739,7 +729,7 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
                         disabled={isFormDisabled} 
                         value={workDate}
                         onChange={(e) => setWorkDate(e.target.value)}
-                        className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm disabled:bg-gray-100" 
+                        className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-600" 
                       />
                       {!isViewMode && !isFormDisabled ? (
                         <label className="flex items-center gap-1 whitespace-nowrap cursor-pointer select-none">
@@ -750,7 +740,7 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
                             onChange={(e) => setIsHoliday(e.target.checked)}
                             className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500" 
                           />
-                          <span className="text-xs text-gray-600 font-medium">공휴일(2.0배)</span>
+                          <span className="text-xs text-gray-700 font-medium">공휴일(2.0배)</span>
                         </label>
                       ) : isHoliday && (
                         <span className="flex items-center gap-1 px-2 py-1 bg-red-100 text-red-600 rounded text-xs font-bold whitespace-nowrap">
@@ -761,11 +751,11 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-2">근무 시간</label>
+                    <label className="block text-sm font-bold text-gray-800 mb-2">근무 시간</label>
                     <div className="flex items-center gap-2">
-                      <input type="time" name="startTime" disabled={isFormDisabled} value={startTime} onChange={(e) => setStartTime(e.target.value)} className="flex-1 px-3 py-2.5 border border-gray-300 rounded-lg text-sm disabled:bg-gray-100" />
+                      <input type="time" name="startTime" disabled={isFormDisabled} value={startTime} onChange={(e) => setStartTime(e.target.value)} className="flex-1 px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-600" />
                       <span className="text-gray-400">~</span>
-                      <input type="time" name="endTime" disabled={isFormDisabled} value={endTime} onChange={(e) => setEndTime(e.target.value)} className="flex-1 px-3 py-2.5 border border-gray-300 rounded-lg text-sm disabled:bg-gray-100" />
+                      <input type="time" name="endTime" disabled={isFormDisabled} value={endTime} onChange={(e) => setEndTime(e.target.value)} className="flex-1 px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-600" />
                     </div>
                   </div>
                 </div>
@@ -774,8 +764,8 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
                   <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
                     <label className="block text-xs font-bold text-gray-500 mb-1">총 근무 시간</label>
                     <div className="flex items-end gap-1">
-                      <span className="text-2xl font-bold text-gray-800">{totalHours}</span>
-                      <span className="text-sm text-gray-500 mb-1">시간</span>
+                      <span className="text-2xl font-bold text-gray-900">{totalHours}</span>
+                      <span className="text-sm text-gray-600 mb-1">시간</span>
                     </div>
                   </div>
                   
@@ -799,13 +789,13 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
                 </div>
 
                 <div className="mt-6">
-                  <label className="block text-sm font-bold text-gray-700 mb-2">근무 장소</label>
-                  <input type="text" name="location" disabled={isFormDisabled} value={location} onChange={(e) => setLocation(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm disabled:bg-gray-100" />
+                  <label className="block text-sm font-bold text-gray-800 mb-2">근무 장소</label>
+                  <input type="text" name="location" disabled={isFormDisabled} value={location} onChange={(e) => setLocation(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-600" />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">
+                <label className="block text-sm font-bold text-gray-800 mb-2">
                   {requestType === 'cancel' ? "취소 사유" : "근무 사유"}
                 </label>
                 <input 
@@ -815,46 +805,50 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
                   value={reason} 
                   onChange={(e) => setReason(e.target.value)} 
                   placeholder={requestType === 'cancel' ? "취소 사유를 입력해주세요." : "근무 사유를 입력해주세요."}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm disabled:bg-gray-100 placeholder:text-gray-400" 
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-600 placeholder:text-gray-500" 
                 />
               </div>
 
-              <div className={isFormDisabled ? "opacity-60 pointer-events-none grayscale" : ""}>
+              {/* ⭐️ [수정] 근무 계획: Table -> Flexbox로 변경하여 모바일 대응 */}
+              <div className={isFormDisabled ? "pointer-events-none grayscale" : ""}>
                 <div className="flex justify-between items-end mb-2">
-                  <label className="block text-sm font-bold text-gray-700">근무 계획</label>
+                  <label className="block text-sm font-bold text-gray-800">근무 계획</label>
                   {!isViewMode && !isFormDisabled && <button type="button" onClick={addPlanRow} className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded font-bold">행 추가</button>}
                 </div>
-                <div className="border border-gray-300 rounded-lg overflow-hidden">
-                  <table className="w-full text-sm text-left">
-                    <thead className="bg-gray-100 text-gray-600 font-bold border-b border-gray-300">
-                      <tr>
-                        <th className="px-4 py-3 w-[35%]">시간</th>
-                        <th className="px-4 py-3">계획 내용</th>
-                        {!isViewMode && !isFormDisabled && <th className="px-2 py-3 w-10"></th>}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200 bg-white">
-                      {planRows.map((row) => (
-                        <tr key={row.id}>
-                          <td className="px-4 py-2">
-                            <div className="flex items-center gap-2">
-                              <input type="time" disabled={isFormDisabled} value={row.startTime} onChange={(e) => updatePlanRow(row.id, 'startTime', e.target.value)} className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs disabled:bg-gray-100" />
-                              <span className="text-gray-400">~</span>
-                              <input type="time" disabled={isFormDisabled} value={row.endTime} onChange={(e) => updatePlanRow(row.id, 'endTime', e.target.value)} className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs disabled:bg-gray-100" />
-                            </div>
-                          </td>
-                          <td className="px-4 py-2">
-                            <input type="text" disabled={isFormDisabled} value={row.content} onChange={(e) => updatePlanRow(row.id, 'content', e.target.value)} className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm disabled:bg-gray-100" />
-                          </td>
-                          {!isViewMode && !isFormDisabled && (
-                            <td className="px-2 py-2 text-center">
-                              <button type="button" onClick={() => removePlanRow(row.id)} className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
-                            </td>
-                          )}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="border border-gray-300 rounded-lg overflow-hidden bg-white">
+                  {/* PC용 헤더 (모바일 숨김) */}
+                  <div className="hidden md:flex bg-gray-100 text-gray-700 font-bold border-b border-gray-300 text-sm">
+                    <div className="px-4 py-3 w-[35%]">시간</div>
+                    <div className="px-4 py-3 flex-1">계획 내용</div>
+                    {!isViewMode && !isFormDisabled && <div className="px-2 py-3 w-10"></div>}
+                  </div>
+
+                  <div className="divide-y divide-gray-200">
+                    {planRows.map((row) => (
+                      <div key={row.id} className="flex flex-col md:flex-row md:items-center p-3 md:px-0 gap-3 md:gap-0">
+                        {/* 시간 입력 (모바일: 전체 너비 / PC: 35%) */}
+                        <div className="px-0 md:px-4 md:w-[35%] flex items-center gap-2">
+                          <input type="time" disabled={isFormDisabled} value={row.startTime} onChange={(e) => updatePlanRow(row.id, 'startTime', e.target.value)} className="flex-1 md:w-full px-2 py-2 border border-gray-300 rounded text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-600" />
+                          <span className="text-gray-400">~</span>
+                          <input type="time" disabled={isFormDisabled} value={row.endTime} onChange={(e) => updatePlanRow(row.id, 'endTime', e.target.value)} className="flex-1 md:w-full px-2 py-2 border border-gray-300 rounded text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-600" />
+                        </div>
+                        
+                        {/* 내용 입력 (모바일: 전체 너비 / PC: 나머지) */}
+                        <div className="px-0 md:px-4 flex-1">
+                          <input type="text" placeholder="내용 입력" disabled={isFormDisabled} value={row.content} onChange={(e) => updatePlanRow(row.id, 'content', e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-600 placeholder:text-gray-400" />
+                        </div>
+
+                        {/* 삭제 버튼 */}
+                        {!isViewMode && !isFormDisabled && (
+                          <div className="px-0 md:px-2 md:w-10 flex justify-end md:justify-center">
+                            <button type="button" onClick={() => removePlanRow(row.id)} className="text-gray-400 hover:text-red-500 p-1">
+                               <Trash2 className="w-5 h-5 md:w-4 md:h-4" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             </section>
@@ -881,7 +875,7 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
           <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/10 backdrop-blur-[1px]">
             <div className="bg-white rounded-xl shadow-2xl border border-gray-200 w-64 max-h-[300px] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
               <div className="px-4 py-3 border-b bg-gray-50 flex justify-between items-center">
-                <span className="font-bold text-sm text-gray-700">
+                <span className="font-bold text-sm text-gray-800">
                   {editingApproverIndex !== null ? "결재자 변경" : "결재자 선택"}
                 </span>
                 <button type="button" onClick={() => setIsApproverSelectOpen(false)} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
@@ -898,8 +892,8 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
                       }} 
                       className="w-full text-left px-4 py-3 text-sm hover:bg-blue-50 rounded-lg flex justify-between items-center group transition-colors border-b border-gray-50 last:border-0"
                     >
-                      <span className="font-medium text-gray-800">{user.name}</span>
-                      <span className="text-gray-400 text-xs bg-gray-100 px-2 py-0.5 rounded-full group-hover:bg-white">{user.rank}</span>
+                      <span className="font-medium text-gray-900">{user.name}</span>
+                      <span className="text-gray-500 text-xs bg-gray-100 px-2 py-0.5 rounded-full group-hover:bg-white">{user.rank}</span>
                     </button>
                   </li>
                 ))}
@@ -922,7 +916,7 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-2 uppercase">현재 설정 저장</label>
                   <div className="flex gap-2">
-                    <input type="text" placeholder="예: 팀장님 전결..." value={newLineTitle} onChange={(e) => setNewLineTitle(e.target.value)} className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                    <input type="text" placeholder="예: 팀장님 전결..." value={newLineTitle} onChange={(e) => setNewLineTitle(e.target.value)} className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none placeholder:text-gray-500" />
                     <button type="button" onClick={handleSaveLine} disabled={approvers.length === 0} className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-1"><Save className="w-4 h-4" /></button>
                   </div>
                 </div>
@@ -930,14 +924,14 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-2 uppercase">불러오기</label>
                   {savedLines.length === 0 ? (
-                    <div className="text-center py-6 text-gray-400 text-sm bg-gray-50 rounded-lg border border-dashed border-gray-200">저장된 결재선이 없습니다.</div>
+                    <div className="text-center py-6 text-gray-500 text-sm bg-gray-50 rounded-lg border border-dashed border-gray-200">저장된 결재선이 없습니다.</div>
                   ) : (
                     <ul className="space-y-2">
                       {savedLines.map((line) => (
                         <li key={line.id} className="flex items-center justify-between p-3 bg-white border border-gray-200 rounded-lg hover:border-blue-300 hover:shadow-sm transition-all group">
                           <div className="flex-1">
-                            <div className="font-bold text-sm text-gray-800">{line.title}</div>
-                            <div className="text-xs text-gray-500 mt-0.5 flex gap-1">{line.approvers.map((a: any) => a.name).join(" → ")}</div>
+                            <div className="font-bold text-sm text-gray-900">{line.title}</div>
+                            <div className="text-xs text-gray-600 mt-0.5 flex gap-1">{line.approvers.map((a: any) => a.name).join(" → ")}</div>
                           </div>
                           <div className="flex items-center gap-1">
                             <button type="button" onClick={() => handleApplyLine(line.approvers)} className="p-1.5 text-blue-600 bg-blue-50 rounded hover:bg-blue-100"><ArrowDownToLine className="w-4 h-4" /></button>

@@ -92,7 +92,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
 
   const [approvedLeaves, setApprovedLeaves] = useState<LeaveRecord[]>([]);
   const [selectedOriginalLeaveId, setSelectedOriginalLeaveId] = useState<string>("");
-  // ⭐️ [NEW] 조회 모드용 원본 연차 데이터 State
   const [originalLeaveForView, setOriginalLeaveForView] = useState<LeaveRecord | null>(null);
 
   const [startDate, setStartDate] = useState("");
@@ -129,7 +128,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
         const factor = LEAVE_OPTIONS.find(opt => opt.label === initialData.leave_type)?.days || 0;
         setLeaveFactor(factor);
 
-        // ⭐️ [NEW] 원본 연차 데이터 불러오기 (변경/취소 건일 경우)
         if (initialData.original_leave_request_id) {
           const fetchOriginalLeave = async () => {
             const { data } = await supabase
@@ -206,14 +204,12 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
   }, [isOpen, isViewMode, initialData]);
 
   useEffect(() => {
-    // 1. 뷰 모드가 아니고, 변경/취소 탭을 눌렀을 때만 실행
     if (!isViewMode && (requestType === 'update' || requestType === 'cancel') && isOpen) {
       
       const fetchValidLeaves = async () => {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
 
-        // 1. 모든 내역 가져오기 (히스토리 추적용)
         const { data } = await supabase
           .from("leave_requests")
           .select("*")
@@ -221,7 +217,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
           .order("created_at", { ascending: false });
         
         if (data) {
-          // 2. 그룹화 로직 (LeaveHistoryModal과 동일)
           const itemMap = new Map<string, LeaveRecord>();
           const parentMap = new Map<string, string>();
 
@@ -232,7 +227,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
             }
           });
 
-          // 루트 ID 찾기 함수
           const findRootId = (currentId: string): string => {
             let pointer = currentId;
             while (parentMap.has(pointer)) {
@@ -242,7 +236,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
             return pointer;
           };
 
-          // 그룹핑
           const groups: Record<string, LeaveRecord[]> = {};
           data.forEach((item: any) => {
             const rootId = findRootId(item.id);
@@ -250,15 +243,12 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
             groups[rootId].push(item);
           });
 
-          // 3. 유효한(살아있는) 승인 건만 필터링
           const validLeaves: LeaveRecord[] = [];
 
           Object.values(groups).forEach((group) => {
-            // 최신순 정렬
             group.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-            const latest = group[0]; // 최종 상태
+            const latest = group[0]; 
 
-            // ✅ 조건: 최종 상태가 '승인'이고, '취소' 타입이 아닌 것만 목록에 표시
             if (latest.status === 'approved' && (latest as any).request_type !== 'cancel') {
               validLeaves.push(latest);
             }
@@ -270,14 +260,12 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
 
       fetchValidLeaves();
       
-      // 입력 폼 초기화
       setSelectedOriginalLeaveId("");
       setStartDate("");
       setEndDate("");
       setReason("");
       
     } else if (requestType === 'create') {
-      // 신청 탭으로 돌아오면 초기화
       setSelectedOriginalLeaveId("");
       setReason("");
     }
@@ -452,7 +440,7 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
   const renderStatusIcon = (status?: string) => {
     if (status === 'approved') return <CheckCircle2 className="w-4 h-4 text-blue-600" />;
     if (status === 'rejected') return <XCircle className="w-4 h-4 text-red-600" />;
-    return <span className="text-[10px] text-gray-400">대기</span>;
+    return <span className="text-[10px] text-gray-500 font-medium">대기</span>;
   };
 
   if (!isOpen) return null;
@@ -463,6 +451,7 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
   const currentReqHours = currentReqDays * 8;
   const isSelectionValid = requestType === 'cancel' || (selectedOtItem && ((selectedOtItem.recognized_hours - selectedOtItem.used_hours) >= currentReqHours));
 
+  // ⭐️ [수정] 비활성화 시 opacity-60 대신 pointer-events-none만 사용하고 색상은 개별 제어
   const isFormDisabled = isViewMode || requestType === 'cancel';
   
   const isOriginalRequired = requestType === 'update' || requestType === 'cancel';
@@ -476,11 +465,12 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
         {/* 헤더 */}
         <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
           <div>
-            <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+            <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
               <FileText className="w-5 h-5 text-blue-600" />
               {isViewMode ? "연차 신청서 상세" : "연차 신청서 작성"}
             </h2>
-            <p className="text-xs text-gray-500 mt-1">
+            {/* ⭐️ [수정] text-gray-500 -> text-gray-600 */}
+            <p className="text-xs text-gray-600 mt-1">
               {isViewMode ? `문서번호: LEAVE-${initialData.id.slice(0, 8)}` : "문서번호: 자동생성 (임시저장)"}
             </p>
           </div>
@@ -511,7 +501,8 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
             {/* 결재선 섹션 */}
             <section>
                <div className="flex justify-between items-center mb-3">
-                <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                {/* ⭐️ [수정] text-gray-700 -> text-gray-800 */}
+                <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
                   <Users className="w-4 h-4" /> {isViewMode ? "결재 진행 현황" : "결재선 지정"}
                 </h3>
                 {!isViewMode && (
@@ -529,10 +520,13 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
               <div className="flex items-center gap-3 overflow-x-auto pb-2 relative">
                 <div className="min-w-[100px] p-3 border border-blue-200 bg-blue-50 rounded-lg text-center flex-shrink-0">
                   <div className="text-xs text-blue-600 font-bold mb-1">기안</div>
-                  <div className="text-sm font-bold text-gray-800">나 (본인)</div>
-                  <div className="text-xs text-gray-500">신청완료</div>
+                  {/* ⭐️ [수정] text-gray-800 -> text-gray-900 */}
+                  <div className="text-sm font-bold text-gray-900">나 (본인)</div>
+                  {/* ⭐️ [수정] text-gray-500 -> text-gray-600 */}
+                  <div className="text-xs text-gray-600">신청완료</div>
                 </div>
-                <div className="text-gray-300">→</div>
+                {/* ⭐️ [수정] 화살표 색상 진하게 */}
+                <div className="text-gray-400">→</div>
                 
                 {approvers.map((app, idx) => (
                   <div key={app.id} className="flex items-center gap-3">
@@ -544,11 +538,12 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                         !isViewMode ? 'bg-white border-blue-200 hover:border-blue-500 hover:shadow-md cursor-pointer' : 'bg-white border-blue-200'
                       }`}
                     >
-                      <div className="text-xs text-gray-500 mb-1 flex justify-center items-center gap-1">
+                      {/* ⭐️ [수정] text-gray-500 -> text-gray-600 */}
+                      <div className="text-xs text-gray-600 mb-1 flex justify-center items-center gap-1">
                         결재 ({idx + 1}차) {isViewMode && renderStatusIcon(app.status)}
                       </div>
-                      <div className="text-sm font-bold text-gray-800">{app.name}</div>
-                      <div className="text-xs text-gray-500">{app.rank}</div>
+                      <div className="text-sm font-bold text-gray-900">{app.name}</div>
+                      <div className="text-xs text-gray-600">{app.rank}</div>
                       
                       {!isViewMode && (
                         <div className="absolute inset-0 flex items-center justify-center bg-white/80 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg">
@@ -571,13 +566,13 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                         </button>
                       )}
                     </div>
-                    {idx < approvers.length - 1 && <div className="text-gray-300">→</div>}
+                    {idx < approvers.length - 1 && <div className="text-gray-400">→</div>}
                   </div>
                 ))}
 
                 {!isViewMode && approvers.length < 2 && (
                   <>
-                    {approvers.length > 0 && <div className="text-gray-300">→</div>}
+                    {approvers.length > 0 && <div className="text-gray-400">→</div>}
                     <button 
                       type="button"
                       onClick={handleAddClick}
@@ -598,7 +593,7 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
               
               {/* 신청 유형 선택 */}
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">신청 유형</label>
+                <label className="block text-sm font-bold text-gray-800 mb-2">신청 유형</label>
                 <div className="flex gap-4">
                   {REQUEST_TYPES.map((type) => {
                     const Icon = type.icon;
@@ -609,7 +604,7 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                         className={`flex items-center gap-2 px-4 py-3 rounded-lg border cursor-pointer transition-all flex-1 justify-center ${
                           isSelected 
                             ? "bg-blue-50 border-blue-500 ring-1 ring-blue-500 text-blue-700" 
-                            : "bg-white border-gray-200 hover:bg-gray-50 text-gray-600"
+                            : "bg-white border-gray-200 hover:bg-gray-50 text-gray-700"
                         } ${isViewMode ? "cursor-default opacity-80" : ""}`}
                       >
                         <input 
@@ -629,55 +624,53 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                 </div>
               </div>
 
-              {/* ⭐️ [수정됨] 변경/취소 대상 선택 섹션 */}
+              {/* 변경/취소 대상 선택 섹션 */}
               {(requestType === 'update' || requestType === 'cancel') && (
                 <div className="animate-in fade-in slide-in-from-top-2">
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                  <label className="block text-sm font-bold text-gray-800 mb-2">
                     {requestType === 'update' ? "변경 대상 연차" : "취소 대상 연차"}
                     {isViewMode && <span className="text-xs font-normal text-gray-500 ml-2">(원본 데이터)</span>}
                   </label>
 
-                  {/* ⭐️ [CASE 1] 조회 모드: 원본 데이터 단일 카드 표시 */}
                   {isViewMode ? (
                     originalLeaveForView ? (
                       <div className="p-4 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-between">
                         <div>
                           <div className="flex items-center gap-2 mb-1">
-                            <span className="text-xs font-bold bg-white border border-gray-200 text-gray-600 px-1.5 py-0.5 rounded">
+                            <span className="text-xs font-bold bg-white border border-gray-200 text-gray-700 px-1.5 py-0.5 rounded">
                               {originalLeaveForView.leave_type}
                             </span>
-                            <span className="text-xs text-gray-400">
+                            <span className="text-xs text-gray-500">
                               {new Date(originalLeaveForView.created_at).toLocaleDateString()} 신청분
                             </span>
                           </div>
-                          <div className="text-sm font-bold text-gray-800 flex items-center gap-1">
+                          <div className="text-sm font-bold text-gray-900 flex items-center gap-1">
                             <CalendarIcon className="w-3.5 h-3.5 text-gray-500" />
                             {originalLeaveForView.start_date} ~ {originalLeaveForView.end_date}
-                            <span className="text-xs font-normal text-gray-500 ml-1">
+                            <span className="text-xs font-normal text-gray-600 ml-1">
                               ({originalLeaveForView.total_days}일)
                             </span>
                           </div>
                           {originalLeaveForView.reason && (
-                            <div className="text-xs text-gray-500 mt-1 truncate max-w-[300px]">
+                            <div className="text-xs text-gray-600 mt-1 truncate max-w-[300px]">
                               사유: {originalLeaveForView.reason}
                             </div>
                           )}
                         </div>
-                        <div className="text-xs font-bold text-gray-400 bg-white px-2 py-1 rounded border">
+                        <div className="text-xs font-bold text-gray-500 bg-white px-2 py-1 rounded border">
                           원본
                         </div>
                       </div>
                     ) : (
-                      <div className="text-sm text-gray-400 p-3 border rounded bg-gray-50">
+                      <div className="text-sm text-gray-500 p-3 border rounded bg-gray-50">
                         원본 연차 정보를 불러올 수 없습니다.
                       </div>
                     )
                   ) : (
-                    /* ⭐️ [CASE 2] 작성 모드: 기존 선택 리스트 표시 */
                     <>
                       <div className="border border-gray-200 rounded-lg bg-gray-50 p-4 max-h-60 overflow-y-auto space-y-2">
                         {approvedLeaves.length === 0 ? (
-                          <div className="text-center text-sm text-gray-400 py-4">선택 가능한 승인된 연차 내역이 없습니다.</div>
+                          <div className="text-center text-sm text-gray-500 py-4">선택 가능한 승인된 연차 내역이 없습니다.</div>
                         ) : (
                           approvedLeaves.map((leave) => (
                             <div 
@@ -691,15 +684,15 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                             >
                               <div className="flex-1">
                                 <div className="flex items-center gap-2 mb-1">
-                                  <span className="text-xs font-bold bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{leave.leave_type}</span>
-                                  <span className="text-xs text-gray-400">{new Date(leave.created_at).toLocaleDateString()} 신청</span>
+                                  <span className="text-xs font-bold bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded">{leave.leave_type}</span>
+                                  <span className="text-xs text-gray-500">{new Date(leave.created_at).toLocaleDateString()} 신청</span>
                                 </div>
-                                <div className="text-sm font-bold text-gray-800 flex items-center gap-1">
+                                <div className="text-sm font-bold text-gray-900 flex items-center gap-1">
                                   <CalendarIcon className="w-3.5 h-3.5 text-gray-500" />
                                   {leave.start_date} ~ {leave.end_date}
-                                  <span className="text-xs font-normal text-gray-500 ml-1">({leave.total_days}일)</span>
+                                  <span className="text-xs font-normal text-gray-600 ml-1">({leave.total_days}일)</span>
                                 </div>
-                                {leave.reason && <div className="text-xs text-gray-500 mt-1 truncate max-w-[300px]">{leave.reason}</div>}
+                                {leave.reason && <div className="text-xs text-gray-600 mt-1 truncate max-w-[300px]">{leave.reason}</div>}
                               </div>
                               <div className="text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity">
                                 <ChevronRight className="w-5 h-5" />
@@ -723,8 +716,8 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
               )}
 
               {/* 휴가 종류 선택 */}
-              <div className={isFormDisabled ? "opacity-60 pointer-events-none grayscale" : ""}>
-                <label className="block text-sm font-bold text-gray-700 mb-2">휴가 종류</label>
+              <div className={isFormDisabled ? "pointer-events-none grayscale" : ""}>
+                <label className="block text-sm font-bold text-gray-800 mb-2">휴가 종류</label>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                   {LEAVE_OPTIONS.map((option) => (
                     <label key={option.label} className={`flex items-center justify-between p-3 border rounded-lg transition-all ${
@@ -747,10 +740,11 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                           }}
                           className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500 flex-shrink-0" 
                         />
-                        <span className="text-sm text-gray-700 truncate" title={option.label}>{option.label}</span>
+                        {/* ⭐️ [수정] text-gray-700 -> text-gray-900 */}
+                        <span className="text-sm text-gray-900 truncate font-medium" title={option.label}>{option.label}</span>
                       </div>
                       <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0 ${
-                        option.days > 0 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'
+                        option.days > 0 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'
                       }`}>
                         {option.days > 0 ? `-${option.days.toFixed(2)}` : '0.0'}
                       </span>
@@ -761,7 +755,7 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
 
               {isCompensatory && (
                 <div className={`border rounded-lg p-4 animate-in fade-in slide-in-from-top-2 transition-colors ${
-                  isFormDisabled ? "opacity-60 pointer-events-none grayscale bg-gray-50" :
+                  isFormDisabled ? "pointer-events-none grayscale bg-gray-50" :
                   isViewMode 
                     ? 'bg-gray-50 border-gray-200' 
                     : isSelectionValid 
@@ -786,7 +780,7 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                                <span className="text-gray-300">|</span>
                                {linkedOvertime.start_time?.slice(0,5)}~{linkedOvertime.end_time?.slice(0,5)}
                             </div>
-                            <div className="text-xs text-gray-400 mt-1 truncate max-w-[200px]">{linkedOvertime.reason}</div>
+                            <div className="text-xs text-gray-500 mt-1 truncate max-w-[200px]">{linkedOvertime.reason}</div>
                           </div>
                           <div className="text-right">
                              <span className="inline-flex items-center px-2 py-1 rounded text-xs font-bold bg-blue-100 text-blue-700">
@@ -832,19 +826,19 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                                   />
                                   <div>
                                     <div className="text-sm font-bold text-gray-900 mb-0.5">{ot.title}</div>
-                                    <div className="text-xs text-gray-500 flex items-center gap-1">
+                                    <div className="text-xs text-gray-600 flex items-center gap-1">
                                        <CalendarIcon className="w-3 h-3"/> {ot.work_date}
                                        <span className="text-gray-300">|</span>
                                        {ot.start_time?.slice(0,5)}~{ot.end_time?.slice(0,5)}
                                     </div>
-                                    <div className="text-xs text-gray-400 truncate max-w-[200px] mt-1">{ot.reason}</div>
+                                    <div className="text-xs text-gray-500 truncate max-w-[200px] mt-1">{ot.reason}</div>
                                   </div>
                                 </div>
                                 <div className="text-right flex-shrink-0 pl-2">
                                   <div className={`text-sm font-bold ${isEnough ? 'text-blue-600' : 'text-red-500'}`}>
                                     잔여 {remaining}시간
                                   </div>
-                                  <div className="text-xs text-gray-400">
+                                  <div className="text-xs text-gray-500">
                                     총 {ot.recognized_hours}h
                                   </div>
                                 </div>
@@ -872,23 +866,24 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                 </div>
               )}
 
-              <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${isFormDisabled ? "opacity-60 pointer-events-none grayscale" : ""}`}>
+              <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${isFormDisabled ? "pointer-events-none grayscale" : ""}`}>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">휴가 기간</label>
+                  <label className="block text-sm font-bold text-gray-800 mb-2">휴가 기간</label>
                   <div className="flex items-center gap-2">
-                    <input type="date" name="startDate" disabled={isFormDisabled} value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm disabled:bg-gray-100" />
+                    {/* ⭐️ [수정] text-gray-900 추가 및 disabled 스타일 개선 */}
+                    <input type="date" name="startDate" disabled={isFormDisabled} value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-500" />
                     <span className="text-gray-400">~</span>
-                    <input type="date" name="endDate" disabled={isFormDisabled} value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm disabled:bg-gray-100" />
+                    <input type="date" name="endDate" disabled={isFormDisabled} value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-500" />
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">총 사용 연차</label>
+                  <label className="block text-sm font-bold text-gray-800 mb-2">총 사용 연차</label>
                   <div className="flex items-center gap-3 p-2 bg-blue-50 border border-blue-100 rounded-lg h-[42px]">
                     <Calculator className="w-5 h-5 text-blue-500 ml-1" />
-                    <div className="flex items-center gap-1 text-sm text-gray-600">
-                      <span className="font-bold text-gray-800">{calcResult.duration}</span>일
+                    <div className="flex items-center gap-1 text-sm text-gray-700">
+                      <span className="font-bold text-gray-900">{calcResult.duration}</span>일
                       <span className="text-gray-400">×</span>
-                      <span className="font-bold text-gray-800">{leaveFactor}</span>
+                      <span className="font-bold text-gray-900">{leaveFactor}</span>
                       <span className="text-gray-400">=</span>
                     </div>
                     <div className="ml-auto bg-blue-600 text-white text-sm font-bold px-3 py-1 rounded shadow-sm">
@@ -897,33 +892,35 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                   </div>
                 </div>
               </div>
-              <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${isFormDisabled ? "opacity-60 pointer-events-none grayscale" : ""}`}>
+              <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${isFormDisabled ? "pointer-events-none grayscale" : ""}`}>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">사용 시간 (선택)</label>
+                  <label className="block text-sm font-bold text-gray-800 mb-2">사용 시간 (선택)</label>
                   <div className="flex items-center gap-2">
-                    <input type="time" name="startTime" disabled={isFormDisabled} value={startTime} onChange={(e) => setStartTime(e.target.value)} className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm disabled:bg-gray-100" />
+                    {/* ⭐️ [수정] text-gray-900 추가 */}
+                    <input type="time" name="startTime" disabled={isFormDisabled} value={startTime} onChange={(e) => setStartTime(e.target.value)} className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-500" />
                     <span className="text-gray-400">~</span>
-                    <input type="time" name="endTime" disabled={isFormDisabled} value={endTime} onChange={(e) => setEndTime(e.target.value)} className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm disabled:bg-gray-100" />
+                    <input type="time" name="endTime" disabled={isFormDisabled} value={endTime} onChange={(e) => setEndTime(e.target.value)} className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-500" />
                   </div>
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                  <label className="block text-sm font-bold text-gray-800 mb-2">
                     {requestType === 'cancel' ? "취소 사유" : "휴가 사유"}
                   </label>
+                  {/* ⭐️ [수정] text-gray-900, placeholder:text-gray-500 추가 */}
                   <textarea 
                     name="reason" 
                     disabled={isViewMode} 
                     value={reason} 
                     onChange={(e) => setReason(e.target.value)} 
                     placeholder={requestType === 'cancel' ? "취소하시는 사유를 입력해주세요." : ""}
-                    className="w-full h-24 px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none disabled:bg-gray-100 placeholder:text-gray-400"
+                    className="w-full h-24 px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none text-gray-900 disabled:bg-gray-100 disabled:text-gray-600 placeholder:text-gray-500"
                   ></textarea>
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">업무 인수인계</label>
-                  <textarea name="handoverNotes" disabled={isFormDisabled} value={handoverNotes} onChange={(e) => setHandoverNotes(e.target.value)} className="w-full h-24 px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none disabled:bg-gray-100"></textarea>
+                  <label className="block text-sm font-bold text-gray-800 mb-2">업무 인수인계</label>
+                  <textarea name="handoverNotes" disabled={isFormDisabled} value={handoverNotes} onChange={(e) => setHandoverNotes(e.target.value)} className="w-full h-24 px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none text-gray-900 disabled:bg-gray-100 disabled:text-gray-600"></textarea>
                 </div>
               </div>
             </section>
@@ -950,7 +947,7 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
           <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/10 backdrop-blur-[1px]">
              <div className="bg-white rounded-xl shadow-2xl border border-gray-200 w-64 max-h-[300px] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
               <div className="px-4 py-3 border-b bg-gray-50 flex justify-between items-center">
-                <span className="font-bold text-sm text-gray-700">
+                <span className="font-bold text-sm text-gray-800">
                   {editingApproverIndex !== null ? "결재자 변경" : "결재자 선택"}
                 </span>
                 <button type="button" onClick={() => setIsApproverSelectOpen(false)} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
@@ -967,8 +964,9 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                       }} 
                       className="w-full text-left px-4 py-3 text-sm hover:bg-blue-50 rounded-lg flex justify-between items-center group transition-colors border-b border-gray-50 last:border-0"
                     >
-                      <span className="font-medium text-gray-800">{user.name}</span>
-                      <span className="text-gray-400 text-xs bg-gray-100 px-2 py-0.5 rounded-full group-hover:bg-white">{user.rank}</span>
+                      {/* ⭐️ [수정] text-gray-800 -> text-gray-900 */}
+                      <span className="font-medium text-gray-900">{user.name}</span>
+                      <span className="text-gray-500 text-xs bg-gray-100 px-2 py-0.5 rounded-full group-hover:bg-white">{user.rank}</span>
                     </button>
                   </li>
                 ))}
@@ -990,7 +988,8 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                <div>
                  <label className="block text-xs font-bold text-gray-500 mb-2 uppercase">현재 설정 저장</label>
                  <div className="flex gap-2">
-                   <input type="text" placeholder="예: 팀장님 전결..." value={newLineTitle} onChange={(e) => setNewLineTitle(e.target.value)} className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                   {/* ⭐️ [수정] text-gray-900 추가 */}
+                   <input type="text" placeholder="예: 팀장님 전결..." value={newLineTitle} onChange={(e) => setNewLineTitle(e.target.value)} className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none placeholder:text-gray-500" />
                    <button type="button" onClick={handleSaveLine} disabled={approvers.length === 0} className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-1"><Save className="w-4 h-4" /></button>
                  </div>
                </div>
@@ -998,14 +997,14 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                <div>
                  <label className="block text-xs font-bold text-gray-500 mb-2 uppercase">불러오기</label>
                  {savedLines.length === 0 ? (
-                   <div className="text-center py-6 text-gray-400 text-sm bg-gray-50 rounded-lg border border-dashed border-gray-200">저장된 결재선이 없습니다.</div>
+                   <div className="text-center py-6 text-gray-500 text-sm bg-gray-50 rounded-lg border border-dashed border-gray-200">저장된 결재선이 없습니다.</div>
                  ) : (
                    <ul className="space-y-2">
                      {savedLines.map((line) => (
                        <li key={line.id} className="flex items-center justify-between p-3 bg-white border border-gray-200 rounded-lg hover:border-blue-300 hover:shadow-sm transition-all group">
                          <div className="flex-1">
-                           <div className="font-bold text-sm text-gray-800">{line.title}</div>
-                           <div className="text-xs text-gray-500 mt-0.5 flex gap-1">{line.approvers.map((a: any) => a.name).join(" → ")}</div>
+                           <div className="font-bold text-sm text-gray-900">{line.title}</div>
+                           <div className="text-xs text-gray-600 mt-0.5 flex gap-1">{line.approvers.map((a: any) => a.name).join(" → ")}</div>
                          </div>
                          <div className="flex items-center gap-1">
                            <button type="button" onClick={() => handleApplyLine(line.approvers)} className="p-1.5 text-blue-600 bg-blue-50 rounded hover:bg-blue-100"><ArrowDownToLine className="w-4 h-4" /></button>
