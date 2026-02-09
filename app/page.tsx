@@ -39,7 +39,7 @@ export default async function DashboardPage() {
   const { count: pendingApprovalCount } = await supabase
     .from("approval_lines")
     .select("*", { count: "exact", head: true })
-    .eq("approver_id", user.id)
+    // .eq("approver_id", user.id)
     .eq("status", "pending");
 
   // ⭐️ [NEW] 5. 전체 직원 리스트 조회 (위젯용)
@@ -47,7 +47,7 @@ export default async function DashboardPage() {
   const { data: employees } = await supabase
     .from("profiles")
     .select("id, name, department, position, avatar_url")
-    .eq("role", "employee") 
+    .neq("department", "외주")
     .order("name", { ascending: true });
 
   return (
