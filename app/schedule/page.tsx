@@ -12,7 +12,7 @@ export default async function SchedulePage() {
     supabase
       .from("profiles")
       .select("*")
-      .eq("role", "employee")
+      .neq("department", "외주")
       .is("resigned_at", null) // ⭐️ 퇴사일이 없는(null) 사람만 조회
       .order("name", { ascending: true }),
 
