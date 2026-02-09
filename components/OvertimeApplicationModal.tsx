@@ -809,16 +809,20 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
                 />
               </div>
 
-              {/* ⭐️ [수정] 근무 계획: Table -> Flexbox로 변경하여 모바일 대응 */}
-              <div className={isFormDisabled ? "pointer-events-none grayscale" : ""}>
+{/* ⭐️ [수정] 근무 계획: Table -> Flexbox로 변경하여 모바일 대응 */}
+<div className={isFormDisabled ? "pointer-events-none grayscale" : ""}>
                 <div className="flex justify-between items-end mb-2">
                   <label className="block text-sm font-bold text-gray-800">근무 계획</label>
                   {!isViewMode && !isFormDisabled && <button type="button" onClick={addPlanRow} className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded font-bold">행 추가</button>}
                 </div>
-                <div className="border border-gray-300 rounded-lg overflow-hidden bg-white">
-                  {/* PC용 헤더 (모바일 숨김) */}
+                
+                {/* ⭐️ overflow-hidden 제거 (혹시 모를 팝업 잘림 방지) */}
+                <div className="border border-gray-300 rounded-lg bg-white">
+                  
+                  {/* PC용 헤더 */}
                   <div className="hidden md:flex bg-gray-100 text-gray-700 font-bold border-b border-gray-300 text-sm">
-                    <div className="px-4 py-3 w-[35%]">시간</div>
+                    {/* ⭐️ [수정] w-[35%] -> w-[45%] 로 변경하여 공간 확보 */}
+                    <div className="px-4 py-3 w-[45%]">시간</div>
                     <div className="px-4 py-3 flex-1">계획 내용</div>
                     {!isViewMode && !isFormDisabled && <div className="px-2 py-3 w-10"></div>}
                   </div>
@@ -826,15 +830,29 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
                   <div className="divide-y divide-gray-200">
                     {planRows.map((row) => (
                       <div key={row.id} className="flex flex-col md:flex-row md:items-center p-3 md:px-0 gap-3 md:gap-0">
-                        {/* 시간 입력 (모바일: 전체 너비 / PC: 35%) */}
-                        <div className="px-0 md:px-4 md:w-[35%] flex items-center gap-2">
-                          <input type="time" disabled={isFormDisabled} value={row.startTime} onChange={(e) => updatePlanRow(row.id, 'startTime', e.target.value)} className="flex-1 md:w-full px-2 py-2 border border-gray-300 rounded text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-600" />
-                          <span className="text-gray-400">~</span>
-                          <input type="time" disabled={isFormDisabled} value={row.endTime} onChange={(e) => updatePlanRow(row.id, 'endTime', e.target.value)} className="flex-1 md:w-full px-2 py-2 border border-gray-300 rounded text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-600" />
+                        
+                        {/* 시간 입력 */}
+                        {/* ⭐️ [수정] md:w-[35%] -> md:w-[45%] 및 flex-shrink-0 추가 */}
+                        <div className="px-0 md:px-4 md:w-[45%] flex-shrink-0 flex items-center gap-2">
+                          <input 
+                            type="time" 
+                            disabled={isFormDisabled} 
+                            value={row.startTime} 
+                            onChange={(e) => updatePlanRow(row.id, 'startTime', e.target.value)} 
+                            className="flex-1 min-w-0 px-2 py-2 border border-gray-300 rounded text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-600" 
+                          />
+                          <span className="text-gray-400 flex-shrink-0">~</span>
+                          <input 
+                            type="time" 
+                            disabled={isFormDisabled} 
+                            value={row.endTime} 
+                            onChange={(e) => updatePlanRow(row.id, 'endTime', e.target.value)} 
+                            className="flex-1 min-w-0 px-2 py-2 border border-gray-300 rounded text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-600" 
+                          />
                         </div>
                         
-                        {/* 내용 입력 (모바일: 전체 너비 / PC: 나머지) */}
-                        <div className="px-0 md:px-4 flex-1">
+                        {/* 내용 입력 */}
+                        <div className="px-0 md:px-4 flex-1 min-w-0">
                           <input type="text" placeholder="내용 입력" disabled={isFormDisabled} value={row.content} onChange={(e) => updatePlanRow(row.id, 'content', e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-600 placeholder:text-gray-400" />
                         </div>
 
