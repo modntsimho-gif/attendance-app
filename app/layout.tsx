@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+// 👇 1. 컴포넌트 임포트 (경로 확인해주세요)
+import AutoLogoutProvider from "@/components/AutoLogoutProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -27,7 +29,10 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        {/* 👇 2. 여기서 감싸주면 끝입니다 */}
+        <AutoLogoutProvider>
+          {children}
+        </AutoLogoutProvider>
       </body>
     </html>
   );

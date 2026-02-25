@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { createClient } from "@/utils/supabase/client"; // ⭐️ [IMPORT] Supabase 클라이언트 추가
 import { getMyCurrentYearStats } from "@/app/actions/dashboard"; 
 import CalendarView from "@/components/CalendarView";
 import LeaveApplicationModal from "@/components/LeaveApplicationModal";
@@ -12,10 +13,10 @@ import ApprovalModal from "@/components/ApprovalModal";
 import OvertimeApplicationModal from "@/components/OvertimeApplicationModal"; 
 import TeamListWidget, { Employee } from "@/components/TeamListWidget"; 
 import DashboardWidgets from "@/components/DashboardWidgets";
-// ⭐️ [IMPORT] AlertTriangle 아이콘 추가
+// ⭐️ [IMPORT] LogOut 아이콘 추가
 import { 
   PlusCircle, Clock, PieChart, Calendar, History, List, Inbox, ChevronRight, UserCog, 
-  Settings, Users, AlertTriangle 
+  Settings, Users, AlertTriangle, LogOut 
 } from "lucide-react";
 
 interface DashboardClientProps {
@@ -47,6 +48,7 @@ export default function DashboardClient({
 }: DashboardClientProps) {
   
   const router = useRouter();
+  const supabase = createClient(); // ⭐️ Supabase 클라이언트 초기화
   
   const [displayTotalLeave, setDisplayTotalLeave] = useState(totalLeave);
   
@@ -111,6 +113,18 @@ export default function DashboardClient({
     router.refresh(); 
   };
 
+  // ⭐️ [추가] 로그아웃 핸들러
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      router.push("/login"); // 로그인 페이지로 이동
+      router.refresh();
+    } catch (error) {
+      console.error("로그아웃 실패:", error);
+      alert("로그아웃 중 오류가 발생했습니다.");
+    }
+  };
+
   return (
     <main className="min-h-screen bg-gray-50 p-6">
       
@@ -133,15 +147,27 @@ export default function DashboardClient({
             </p>
           </div>
 
-          {role === 'manager' && (
-            <Link 
-              href="/admin"
-              className="flex items-center gap-2 bg-gray-900 hover:bg-gray-800 text-white px-5 py-2.5 rounded-xl shadow-lg hover:shadow-xl transition-all font-bold text-sm"
+          {/* ⭐️ [수정] 관리자 버튼과 로그아웃 버튼을 그룹화 */}
+          <div className="flex items-center gap-3">
+            {role === 'manager' && (
+              <Link 
+                href="/admin"
+                className="flex items-center gap-2 bg-gray-900 hover:bg-gray-800 text-white px-5 py-2.5 rounded-xl shadow-lg hover:shadow-xl transition-all font-bold text-sm"
+              >
+                <Settings className="w-4 h-4" />
+                관리자 페이지
+              </Link>
+            )}
+            
+            {/* ⭐️ [추가] 로그아웃 버튼 */}
+            <button 
+              onClick={handleLogout}
+              className="flex items-center gap-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-4 py-2.5 rounded-xl shadow-sm hover:shadow-md transition-all font-bold text-sm"
             >
-              <Settings className="w-4 h-4" />
-              관리자 페이지
-            </Link>
-          )}
+              <LogOut className="w-4 h-4" />
+              로그아웃
+            </button>
+          </div>
         </div>
 
         {/* 상단 통계 (카드 섹션) */}
