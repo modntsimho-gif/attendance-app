@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { createClient } from "@/utils/supabase/client"; // ⭐️ [IMPORT] Supabase 클라이언트 추가
+import { createClient } from "@/utils/supabase/client"; 
 import { getMyCurrentYearStats } from "@/app/actions/dashboard"; 
 import CalendarView from "@/components/CalendarView";
 import LeaveApplicationModal from "@/components/LeaveApplicationModal";
@@ -13,10 +13,9 @@ import ApprovalModal from "@/components/ApprovalModal";
 import OvertimeApplicationModal from "@/components/OvertimeApplicationModal"; 
 import TeamListWidget, { Employee } from "@/components/TeamListWidget"; 
 import DashboardWidgets from "@/components/DashboardWidgets";
-// ⭐️ [IMPORT] LogOut 아이콘 추가
 import { 
   PlusCircle, Clock, PieChart, Calendar, History, List, Inbox, ChevronRight, UserCog, 
-  Settings, Users, AlertTriangle, LogOut 
+  Settings, Users, AlertTriangle, LogOut, RotateCcw
 } from "lucide-react";
 
 interface DashboardClientProps {
@@ -33,6 +32,14 @@ interface DashboardClientProps {
   employees: Employee[];
 }
 
+const getLocalToday = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export default function DashboardClient({ 
   userName, 
   department,
@@ -48,17 +55,77 @@ export default function DashboardClient({
 }: DashboardClientProps) {
   
   const router = useRouter();
-  const supabase = createClient(); // ⭐️ Supabase 클라이언트 초기화
+  const supabase = createClient(); 
   
   const [displayTotalLeave, setDisplayTotalLeave] = useState(totalLeave);
-  
   const [localLeaveCount, setLocalLeaveCount] = useState(leaveRequestCount);
   const [localOvertimeCount, setLocalOvertimeCount] = useState(overtimeRequestCount);
+
+  const [attendanceStatus, setAttendanceStatus] = useState<'none' | 'checked_in' | 'checked_out'>('none');
+  const [clockInTime, setClockInTime] = useState<string | null>(null);
+  const [clockOutTime, setClockOutTime] = useState<string | null>(null);
+  
+  // ⭐️ [추가] 어제 자동 마감 여부를 저장할 상태
+  const [autoCheckoutDate, setAutoCheckoutDate] = useState<string | null>(null);
 
   const currentYear = new Date().getFullYear();
 
   useEffect(() => { setLocalLeaveCount(leaveRequestCount); }, [leaveRequestCount]);
   useEffect(() => { setLocalOvertimeCount(overtimeRequestCount); }, [overtimeRequestCount]);
+
+  // ⭐️ [수정] 오늘 출퇴근 기록 + 어제 자동 마감 여부 동시 조회
+  useEffect(() => {
+    const fetchAttendance = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const today = getLocalToday();
+
+        // 어제 날짜 계산
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yYear = yesterday.getFullYear();
+        const yMonth = String(yesterday.getMonth() + 1).padStart(2, '0');
+        const yDay = String(yesterday.getDate()).padStart(2, '0');
+        const yesterdayStr = `${yYear}-${yMonth}-${yDay}`;
+
+        // 1. 오늘 출퇴근 기록 조회
+        const { data: todayData } = await supabase
+          .from('attendance')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('date', today)
+          .maybeSingle(); 
+
+        if (todayData) {
+          if (todayData.clock_in) {
+            setClockInTime(new Date(todayData.clock_in).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }));
+            setAttendanceStatus(todayData.clock_out ? 'checked_out' : 'checked_in');
+          }
+          if (todayData.clock_out) {
+            setClockOutTime(new Date(todayData.clock_out).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }));
+          }
+        }
+
+        // 2. 어제 자동 마감 여부 조회
+        const { data: yesterdayData } = await supabase
+          .from('attendance')
+          .select('is_auto_checkout')
+          .eq('user_id', user.id)
+          .eq('date', yesterdayStr)
+          .maybeSingle();
+
+        if (yesterdayData?.is_auto_checkout) {
+          setAutoCheckoutDate(`${yMonth}/${yDay}`);
+        }
+
+      } catch (error) {
+        console.error("출퇴근 기록을 불러오는데 실패했습니다.", error);
+      }
+    };
+    fetchAttendance();
+  }, [supabase]);
 
   useEffect(() => {
     const fetchLatestStats = async () => {
@@ -79,11 +146,9 @@ export default function DashboardClient({
   const [isWorkHistoryOpen, setIsWorkHistoryOpen] = useState(false);
   const [isApprovalOpen, setIsApprovalOpen] = useState(false);
   const [isOvertimeOpen, setIsOvertimeOpen] = useState(false);
-  
   const [selectedTeamMember, setSelectedTeamMember] = useState<Employee | null>(null);
 
   const formatLeave = (val: number) => Number(val.toFixed(2)).toString();
-
   const calculateRate = (total: number, used: number) => {
     if (total <= 0) return 0;
     const rate = (used / total) * 100;
@@ -93,31 +158,18 @@ export default function DashboardClient({
   const annualRemaining = displayTotalLeave - usedLeave; 
   const annualRate = calculateRate(displayTotalLeave, usedLeave);
   const annualRateStr = annualRate.toFixed(1); 
-
   const extraRemaining = extraTotalLeave - extraUsedLeave; 
   const extraRate = calculateRate(extraTotalLeave, extraUsedLeave);
   const extraRateStr = extraRate.toFixed(1);
 
-  const handleLeaveAdded = () => {
-    setLocalLeaveCount((prev) => prev + 1); 
-    router.refresh(); 
-  };
+  const handleLeaveAdded = () => { setLocalLeaveCount((prev) => prev + 1); router.refresh(); };
+  const handleLeaveDeleted = () => { setLocalLeaveCount((prev) => Math.max(0, prev - 1)); router.refresh(); };
+  const handleOvertimeAdded = () => { setLocalOvertimeCount((prev) => prev + 1); router.refresh(); };
 
-  const handleLeaveDeleted = () => {
-    setLocalLeaveCount((prev) => Math.max(0, prev - 1)); 
-    router.refresh(); 
-  };
-
-  const handleOvertimeAdded = () => {
-    setLocalOvertimeCount((prev) => prev + 1); 
-    router.refresh(); 
-  };
-
-  // ⭐️ [추가] 로그아웃 핸들러
   const handleLogout = async () => {
     try {
       await supabase.auth.signOut();
-      router.push("/login"); // 로그인 페이지로 이동
+      router.push("/login"); 
       router.refresh();
     } catch (error) {
       console.error("로그아웃 실패:", error);
@@ -125,9 +177,86 @@ export default function DashboardClient({
     }
   };
 
+  const handleClockIn = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return alert("로그인 정보가 없습니다.");
+
+      const now = new Date();
+      const today = getLocalToday();
+
+      const { error } = await supabase
+        .from('attendance')
+        .insert([{ 
+          user_id: user.id, 
+          date: today, 
+          clock_in: now.toISOString() 
+        }]);
+
+      if (error) throw error;
+
+      setClockInTime(now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }));
+      setAttendanceStatus('checked_in');
+      alert("출근 처리가 완료되었습니다.");
+    } catch (error) {
+      console.error("출근 기록 실패:", error);
+      alert("출근 처리에 실패했습니다. 다시 시도해주세요.");
+    }
+  };
+
+  const handleClockOut = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return alert("로그인 정보가 없습니다.");
+
+      const now = new Date();
+      const today = getLocalToday();
+
+      const { error } = await supabase
+        .from('attendance')
+        .update({ clock_out: now.toISOString() })
+        .eq('user_id', user.id)
+        .eq('date', today);
+
+      if (error) throw error;
+
+      setClockOutTime(now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }));
+      setAttendanceStatus('checked_out');
+      alert("퇴근 처리가 완료되었습니다. 고생하셨습니다!");
+    } catch (error) {
+      console.error("퇴근 기록 실패:", error);
+      alert("퇴근 처리에 실패했습니다. 다시 시도해주세요.");
+    }
+  };
+
+  const handleClockOutCancel = async () => {
+    if (!confirm("퇴근 처리를 취소하시겠습니까? 다시 근무 중 상태로 변경됩니다.")) return;
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return alert("로그인 정보가 없습니다.");
+
+      const today = getLocalToday();
+
+      const { error } = await supabase
+        .from('attendance')
+        .update({ clock_out: null }) 
+        .eq('user_id', user.id)
+        .eq('date', today);
+
+      if (error) throw error;
+
+      setClockOutTime(null); 
+      setAttendanceStatus('checked_in'); 
+      alert("퇴근이 취소되었습니다.");
+    } catch (error) {
+      console.error("퇴근 취소 실패:", error);
+      alert("퇴근 취소 처리에 실패했습니다. 다시 시도해주세요.");
+    }
+  };
+
   return (
     <main className="min-h-screen bg-gray-50 p-6">
-      
       <LeaveApplicationModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSuccess={handleLeaveAdded} />
       <LeaveHistoryModal isOpen={isHistoryOpen} onClose={() => setIsHistoryOpen(false)} onDelete={handleLeaveDeleted} />
       <WorkHistoryModal isOpen={isWorkHistoryOpen} onClose={() => setIsWorkHistoryOpen(false)} />
@@ -136,6 +265,30 @@ export default function DashboardClient({
 
       <div className="w-full max-w-[95%] mx-auto space-y-8">
         
+        {/* ⭐️ [추가] 자동 마감 알림 배너 */}
+        {autoCheckoutDate && (
+          <div className="bg-orange-50 border border-orange-200 p-4 rounded-xl shadow-sm flex items-start gap-3 animate-in fade-in slide-in-from-top-2 duration-300">
+            <div className="p-1.5 bg-orange-100 rounded-full shrink-0 mt-0.5">
+              <AlertTriangle className="w-4 h-4 text-orange-600" />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-bold text-orange-800 text-sm">
+                어제({autoCheckoutDate}) 퇴근 기록이 누락되었습니다.
+              </h3>
+              <p className="text-orange-700 text-sm mt-1">
+                시스템에 의해 <strong>18:00로 자동 마감</strong> 처리되었습니다. 실제 퇴근 시간과 다르다면 관리자에게 근태 수정 요청을 진행해 주세요.
+              </p>
+            </div>
+            <button 
+              onClick={() => setAutoCheckoutDate(null)}
+              className="text-orange-400 hover:text-orange-600 p-1 transition-colors"
+            >
+              <span className="sr-only">닫기</span>
+              ✕
+            </button>
+          </div>
+        )}
+
         {/* 헤더 */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
           <div>
@@ -147,7 +300,6 @@ export default function DashboardClient({
             </p>
           </div>
 
-          {/* ⭐️ [수정] 관리자 버튼과 로그아웃 버튼을 그룹화 */}
           <div className="flex items-center gap-3">
             {role === 'manager' && (
               <Link 
@@ -159,7 +311,6 @@ export default function DashboardClient({
               </Link>
             )}
             
-            {/* ⭐️ [추가] 로그아웃 버튼 */}
             <button 
               onClick={handleLogout}
               className="flex items-center gap-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-4 py-2.5 rounded-xl shadow-sm hover:shadow-md transition-all font-bold text-sm"
@@ -172,8 +323,6 @@ export default function DashboardClient({
 
         {/* 상단 통계 (카드 섹션) */}
         <div className="space-y-6">
-           
-           {/* ⭐️ [UI] 연차 미설정 경고 메시지 (총 연차가 0일 때 표시) */}
            {displayTotalLeave === 0 && (
              <div className="bg-amber-50 border-l-4 border-amber-400 p-4 rounded-r-xl shadow-sm flex items-start gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
                <div className="p-2 bg-amber-100 rounded-full shrink-0">
@@ -275,7 +424,7 @@ export default function DashboardClient({
           </div>
         </div>
 
-        {/* 하단 레이아웃 (기존 유지) */}
+        {/* 하단 레이아웃 */}
         <div className="flex flex-col lg:grid lg:grid-cols-5 gap-6">
           <div className="lg:col-span-4 flex flex-col h-full gap-6 order-2 lg:order-1">
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 relative">
@@ -289,6 +438,80 @@ export default function DashboardClient({
           </div>
 
           <div className="lg:col-span-1 space-y-6 order-1 lg:order-2">
+            
+        {/* 오늘의 출퇴근 위젯 */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="p-4 border-b border-gray-100 bg-gray-50/50">
+            <h3 className="font-bold text-gray-800 flex items-center gap-2">
+              <Clock className="w-4 h-4 text-blue-500" />
+              오늘의 출퇴근
+            </h3>
+          </div>
+          <div className="p-4 space-y-4">
+            <div className="space-y-2">
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-gray-500">출근 시간</span>
+                <span className={`font-bold ${clockInTime ? 'text-blue-600' : 'text-gray-400'}`}>
+                  {clockInTime || '미등록'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-gray-500">퇴근 시간</span>
+                <span className={`font-bold ${clockOutTime ? 'text-red-500' : 'text-gray-400'}`}>
+                  {clockOutTime || '미등록'}
+                </span>
+              </div>
+            </div>
+            
+            {/* 출근 / 퇴근 버튼 */}
+            <div className="grid grid-cols-2 gap-2 pt-2">
+              <button 
+                onClick={handleClockIn}
+                disabled={attendanceStatus !== 'none'}
+                className={`py-2.5 rounded-lg font-bold text-sm transition-all ${
+                  attendanceStatus === 'none' 
+                    ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-md' 
+                    : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                }`}
+              >
+                출근하기
+              </button>
+              
+              {attendanceStatus === 'checked_out' ? (
+                <button 
+                  onClick={handleClockOutCancel}
+                  className="py-2.5 rounded-lg font-bold text-sm transition-all bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 shadow-sm flex items-center justify-center gap-1"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  퇴근 취소
+                </button>
+              ) : (
+                <button 
+                  onClick={handleClockOut}
+                  disabled={attendanceStatus !== 'checked_in'}
+                  className={`py-2.5 rounded-lg font-bold text-sm transition-all ${
+                    attendanceStatus === 'checked_in' 
+                      ? 'bg-gray-800 hover:bg-gray-900 text-white shadow-md' 
+                      : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  }`}
+                >
+                  퇴근하기
+                </button>
+              )}
+            </div>
+            
+            <div className="pt-2 border-t border-gray-100 mt-2">
+              <Link 
+                href="/attendance"
+                className="w-full py-2.5 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-lg font-bold text-sm transition-all flex items-center justify-center gap-2 shadow-sm"
+              >
+                <List className="w-4 h-4 text-gray-500" />
+                전체 직원 출퇴근 명부
+              </Link>
+            </div>
+          </div>
+        </div>
+
             <button 
               onClick={() => setIsApprovalOpen(true)}
               className="w-full bg-gray-800 hover:bg-gray-900 text-white p-4 rounded-xl shadow-lg flex items-center justify-between group transition-all"
@@ -365,7 +588,7 @@ export default function DashboardClient({
                   <Users className="w-5 h-5 text-indigo-600" />
                 </div>
                 <div className="text-left">
-                  <div className="text-sm font-bold text-gray-800">전체 근태 조회</div>
+                  <div className="text-sm font-bold text-gray-800">전체 직원 근태 조회</div>
                   <div className="text-xs text-gray-500">모든 직원의 현황 파악</div>
                 </div>
               </div>
