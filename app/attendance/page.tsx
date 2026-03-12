@@ -41,7 +41,7 @@ export default function AttendancePage() {
           .from('profiles')
           .select('id, name, department, position')
           .is('resigned_at', null)
-        //   .neq("department", "외주") 
+          .neq("department", "외주") 
           .order('name');
 
         if (profileError) throw profileError;
