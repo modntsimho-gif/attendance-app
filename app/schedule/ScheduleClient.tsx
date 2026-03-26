@@ -36,12 +36,12 @@ export default function ScheduleClient({
       } else if (selectedYear === currentYear) {
         totalAnnual = emp.total_leave_days || 0;
       }
-
-      // B. 사용 연차: 해당 연도에 시작하는 'annual' 타입 휴가 합계
+      
+      // B. 사용 연차: 해당 연도에 시작하는 '연차' 타입 휴가 합계
       const usedAnnual = leaves
         .filter(l => 
           l.user_id === emp.id && 
-          l.leave_type === 'annual' && 
+          (l.leave_type === '연차' || l.leave_type === 'annual') && // ⭕️ 한글/영문 모두 대응
           l.start_date?.startsWith(yearStr)
         )
         .reduce((sum, l) => sum + Number(l.total_leave_days), 0);
@@ -55,10 +55,11 @@ export default function ScheduleClient({
       const totalExtra = generatedOvertimeHours / 8; 
 
       // B. 사용: 해당 연도 'reward' 또는 'replacement' 타입 휴가 합계
+      // B. 사용: 해당 연도 보상/대체 휴가 합계
       const usedExtra = leaves
         .filter(l => 
           l.user_id === emp.id && 
-          (l.leave_type === 'reward' || l.leave_type === 'replacement') && 
+          (l.leave_type === '보상휴가' || l.leave_type === '대체휴가' || l.leave_type === '보상' || l.leave_type === '대체' || l.leave_type === 'reward' || l.leave_type === 'replacement') && // ⭕️ DB에 저장되는 실제 한글 명칭으로 수정 (필요에 따라 조정)
           l.start_date?.startsWith(yearStr)
         )
         .reduce((sum, l) => sum + Number(l.total_leave_days), 0);
@@ -91,8 +92,10 @@ export default function ScheduleClient({
     ...leaves.map(l => parseInt(l.start_date.split('-')[0]))
   ])).sort((a, b) => b - a);
 
-  // 숫자 포맷팅 헬퍼
-  const fmt = (num: number) => Number(num).toFixed(1).replace(/\.0$/, '');
+
+  
+  // 숫자 포맷팅 헬퍼 (소수점 둘째 자리까지 표시, 불필요한 0은 제거)
+  const fmt = (num: number) => Number(num.toFixed(2)).toString();
 
   return (
     <main className="min-h-screen bg-gray-50 p-6">

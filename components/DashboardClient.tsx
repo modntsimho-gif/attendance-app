@@ -15,7 +15,7 @@ import TeamListWidget, { Employee } from "@/components/TeamListWidget";
 import DashboardWidgets from "@/components/DashboardWidgets";
 import { 
   PlusCircle, Clock, PieChart, Calendar, History, List, Inbox, ChevronRight, UserCog, 
-  Settings, Users, AlertTriangle, LogOut, RotateCcw
+  Settings, Users, AlertTriangle, LogOut, RotateCcw, MapPin
 } from "lucide-react";
 
 interface DashboardClientProps {
@@ -65,15 +65,14 @@ export default function DashboardClient({
   const [clockInTime, setClockInTime] = useState<string | null>(null);
   const [clockOutTime, setClockOutTime] = useState<string | null>(null);
   
-  // ⭐️ [추가] 어제 자동 마감 여부를 저장할 상태
   const [autoCheckoutDate, setAutoCheckoutDate] = useState<string | null>(null);
+  const [locationLoading, setLocationLoading] = useState(false); // 📍 위치 로딩 상태 추가
 
   const currentYear = new Date().getFullYear();
 
   useEffect(() => { setLocalLeaveCount(leaveRequestCount); }, [leaveRequestCount]);
   useEffect(() => { setLocalOvertimeCount(overtimeRequestCount); }, [overtimeRequestCount]);
 
-  // ⭐️ [수정] 오늘 출퇴근 기록 + 어제 자동 마감 여부 동시 조회
   useEffect(() => {
     const fetchAttendance = async () => {
       try {
@@ -81,8 +80,6 @@ export default function DashboardClient({
         if (!user) return;
 
         const today = getLocalToday();
-
-        // 어제 날짜 계산
         const yesterday = new Date();
         yesterday.setDate(yesterday.getDate() - 1);
         const yYear = yesterday.getFullYear();
@@ -90,7 +87,6 @@ export default function DashboardClient({
         const yDay = String(yesterday.getDate()).padStart(2, '0');
         const yesterdayStr = `${yYear}-${yMonth}-${yDay}`;
 
-        // 1. 오늘 출퇴근 기록 조회
         const { data: todayData } = await supabase
           .from('attendance')
           .select('*')
@@ -108,7 +104,6 @@ export default function DashboardClient({
           }
         }
 
-        // 2. 어제 자동 마감 여부 조회
         const { data: yesterdayData } = await supabase
           .from('attendance')
           .select('is_auto_checkout')
@@ -177,10 +172,39 @@ export default function DashboardClient({
     }
   };
 
+  // 📍 [추가] 현재 위치 가져오는 함수
+  const getCurrentLocation = (): Promise<{lat: number, lng: number} | null> => {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        console.error("Geolocation is not supported by this browser.");
+        resolve(null);
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          resolve({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          });
+        },
+        (error) => {
+          console.warn("위치 정보를 가져올 수 없습니다:", error.message);
+          resolve(null); // 위치 실패해도 출근은 가능하게 null 반환
+        },
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+      );
+    });
+  };
+
+  // ✅ [수정] 출근 처리 (위치 정보 포함)
   const handleClockIn = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return alert("로그인 정보가 없습니다.");
+
+      setLocationLoading(true); // 로딩 시작
+      const location = await getCurrentLocation(); // 위치 가져오기
+      setLocationLoading(false); // 로딩 끝
 
       const now = new Date();
       const today = getLocalToday();
@@ -190,31 +214,45 @@ export default function DashboardClient({
         .insert([{ 
           user_id: user.id, 
           date: today, 
-          clock_in: now.toISOString() 
+          clock_in: now.toISOString(),
+          // 👇 위치 정보 저장 (컬럼이 존재해야 함)
+          start_lat: location?.lat || null,
+          start_lng: location?.lng || null
         }]);
 
       if (error) throw error;
 
       setClockInTime(now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }));
       setAttendanceStatus('checked_in');
-      alert("출근 처리가 완료되었습니다.");
+      alert(`출근 처리가 완료되었습니다.${location ? ' (위치 저장됨)' : ''}`);
     } catch (error) {
+      setLocationLoading(false);
       console.error("출근 기록 실패:", error);
       alert("출근 처리에 실패했습니다. 다시 시도해주세요.");
     }
   };
 
+  // ✅ [수정] 퇴근 처리 (위치 정보 포함)
   const handleClockOut = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return alert("로그인 정보가 없습니다.");
+
+      setLocationLoading(true); // 로딩 시작
+      const location = await getCurrentLocation(); // 위치 가져오기
+      setLocationLoading(false); // 로딩 끝
 
       const now = new Date();
       const today = getLocalToday();
 
       const { error } = await supabase
         .from('attendance')
-        .update({ clock_out: now.toISOString() })
+        .update({ 
+          clock_out: now.toISOString(),
+          // 👇 위치 정보 저장
+          end_lat: location?.lat || null,
+          end_lng: location?.lng || null
+        })
         .eq('user_id', user.id)
         .eq('date', today);
 
@@ -222,8 +260,9 @@ export default function DashboardClient({
 
       setClockOutTime(now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }));
       setAttendanceStatus('checked_out');
-      alert("퇴근 처리가 완료되었습니다. 고생하셨습니다!");
+      alert(`퇴근 처리가 완료되었습니다. 고생하셨습니다!${location ? ' (위치 저장됨)' : ''}`);
     } catch (error) {
+      setLocationLoading(false);
       console.error("퇴근 기록 실패:", error);
       alert("퇴근 처리에 실패했습니다. 다시 시도해주세요.");
     }
@@ -240,7 +279,11 @@ export default function DashboardClient({
 
       const { error } = await supabase
         .from('attendance')
-        .update({ clock_out: null }) 
+        .update({ 
+            clock_out: null,
+            end_lat: null, // 취소 시 퇴근 위치도 초기화
+            end_lng: null 
+        }) 
         .eq('user_id', user.id)
         .eq('date', today);
 
@@ -265,7 +308,6 @@ export default function DashboardClient({
 
       <div className="w-full max-w-[95%] mx-auto space-y-8">
         
-        {/* ⭐️ [추가] 자동 마감 알림 배너 */}
         {autoCheckoutDate && (
           <div className="bg-orange-50 border border-orange-200 p-4 rounded-xl shadow-sm flex items-start gap-3 animate-in fade-in slide-in-from-top-2 duration-300">
             <div className="p-1.5 bg-orange-100 rounded-full shrink-0 mt-0.5">
@@ -439,78 +481,85 @@ export default function DashboardClient({
 
           <div className="lg:col-span-1 space-y-6 order-1 lg:order-2">
             
-        {/* 오늘의 출퇴근 위젯 */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-4 border-b border-gray-100 bg-gray-50/50">
-            <h3 className="font-bold text-gray-800 flex items-center gap-2">
-              <Clock className="w-4 h-4 text-blue-500" />
-              오늘의 출퇴근
-            </h3>
-          </div>
-          <div className="p-4 space-y-4">
-            <div className="space-y-2">
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-gray-500">출근 시간</span>
-                <span className={`font-bold ${clockInTime ? 'text-blue-600' : 'text-gray-400'}`}>
-                  {clockInTime || '미등록'}
-                </span>
-              </div>
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-gray-500">퇴근 시간</span>
-                <span className={`font-bold ${clockOutTime ? 'text-red-500' : 'text-gray-400'}`}>
-                  {clockOutTime || '미등록'}
-                </span>
-              </div>
-            </div>
-            
-            {/* 출근 / 퇴근 버튼 */}
-            <div className="grid grid-cols-2 gap-2 pt-2">
-              <button 
-                onClick={handleClockIn}
-                disabled={attendanceStatus !== 'none'}
-                className={`py-2.5 rounded-lg font-bold text-sm transition-all ${
-                  attendanceStatus === 'none' 
-                    ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-md' 
-                    : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                }`}
-              >
-                출근하기
-              </button>
-              
-              {attendanceStatus === 'checked_out' ? (
-                <button 
-                  onClick={handleClockOutCancel}
-                  className="py-2.5 rounded-lg font-bold text-sm transition-all bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 shadow-sm flex items-center justify-center gap-1"
+            {/* 오늘의 출퇴근 위젯 */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+              <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+                <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-blue-500" />
+                  오늘의 출퇴근
+                </h3>
+                {/* <Link 
+                  href="/location-setup"
+                  className="hidden text-xs md:flex items-center gap-1 text-gray-500 hover:text-blue-600 bg-white border border-gray-200 px-2 py-1 rounded-md shadow-sm transition-colors"
                 >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  퇴근 취소
-                </button>
-              ) : (
-                <button 
-                  onClick={handleClockOut}
-                  disabled={attendanceStatus !== 'checked_in'}
-                  className={`py-2.5 rounded-lg font-bold text-sm transition-all ${
-                    attendanceStatus === 'checked_in' 
-                      ? 'bg-gray-800 hover:bg-gray-900 text-white shadow-md' 
-                      : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                  }`}
-                >
-                  퇴근하기
-                </button>
-              )}
+                  <MapPin className="w-3 h-3" />
+                  위치 설정
+                </Link> */}
+              </div>
+              <div className="p-4 space-y-4">
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-gray-500">출근 시간</span>
+                    <span className={`font-bold ${clockInTime ? 'text-blue-600' : 'text-gray-400'}`}>
+                      {clockInTime || '미등록'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-gray-500">퇴근 시간</span>
+                    <span className={`font-bold ${clockOutTime ? 'text-red-500' : 'text-gray-400'}`}>
+                      {clockOutTime || '미등록'}
+                    </span>
+                  </div>
+                </div>
+                
+                {/* 출근 / 퇴근 버튼 */}
+                <div className="grid grid-cols-2 gap-2 pt-2">
+                  <button 
+                    onClick={handleClockIn}
+                    disabled={attendanceStatus !== 'none' || locationLoading}
+                    className={`py-2.5 rounded-lg font-bold text-sm transition-all ${
+                      attendanceStatus === 'none' 
+                        ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-md' 
+                        : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    }`}
+                  >
+                    {locationLoading && attendanceStatus === 'none' ? '위치 확인중...' : '출근하기'}
+                  </button>
+                  
+                  {attendanceStatus === 'checked_out' ? (
+                    <button 
+                      onClick={handleClockOutCancel}
+                      className="py-2.5 rounded-lg font-bold text-sm transition-all bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 shadow-sm flex items-center justify-center gap-1"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      퇴근 취소
+                    </button>
+                  ) : (
+                    <button 
+                      onClick={handleClockOut}
+                      disabled={attendanceStatus !== 'checked_in' || locationLoading}
+                      className={`py-2.5 rounded-lg font-bold text-sm transition-all ${
+                        attendanceStatus === 'checked_in' 
+                          ? 'bg-gray-800 hover:bg-gray-900 text-white shadow-md' 
+                          : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      }`}
+                    >
+                       {locationLoading && attendanceStatus === 'checked_in' ? '위치 확인중...' : '퇴근하기'}
+                    </button>
+                  )}
+                </div>
+                
+                <div className="pt-2 border-t border-gray-100 mt-2">
+                  <Link 
+                    href="/attendance"
+                    className="w-full py-2.5 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-lg font-bold text-sm transition-all flex items-center justify-center gap-2 shadow-sm"
+                  >
+                    <List className="w-4 h-4 text-gray-500" />
+                    전체 직원 출퇴근 명부
+                  </Link>
+                </div>
+              </div>
             </div>
-            
-            <div className="pt-2 border-t border-gray-100 mt-2">
-              <Link 
-                href="/attendance"
-                className="w-full py-2.5 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-lg font-bold text-sm transition-all flex items-center justify-center gap-2 shadow-sm"
-              >
-                <List className="w-4 h-4 text-gray-500" />
-                전체 직원 출퇴근 명부
-              </Link>
-            </div>
-          </div>
-        </div>
 
             <button 
               onClick={() => setIsApprovalOpen(true)}
