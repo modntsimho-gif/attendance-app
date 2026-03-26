@@ -85,7 +85,7 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
     // 3. 사용 연차 계산 (승인된 건만 합산)
     // 주의: 취소된 건은 제외, 'approved' 상태인 것만 계산
     const usedAnnualLeave = leavesInYear
-      .filter(l => l.status === 'approved' && l.leave_type === 'annual') // 연차(annual)만 계산 (반차 포함)
+      .filter(l => l.status === 'approved' && (l.leave_type === '연차' || l.leave_type === 'annual')) // ⭕️ 한글/영문 모두 계산
       .reduce((sum, l) => sum + Number(l.total_leave_days), 0);
 
     return {
@@ -183,7 +183,8 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                     <div className="text-xs text-blue-600 font-bold mb-1">{selectedYear}년 잔여 연차</div>
                     <div className="text-xl font-bold text-gray-800">
                       {Number(yearStats.remaining).toFixed(2)}
-                      <span className="text-xs font-normal text-gray-400 ml-1">/ {Number(yearStats.total).toFixed(1)}</span>
+                      {/* ⭕️ 총 연차도 소수점 2자리로 통일 */}
+                      <span className="text-xs font-normal text-gray-400 ml-1">/ {Number(yearStats.total).toFixed(2)}</span>
                     </div>
                   </div>
 
@@ -191,8 +192,9 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                   <div className="flex-1 md:flex-none bg-orange-50 p-4 rounded-lg border border-orange-100 text-center min-w-[140px]">
                     <div className="text-xs text-orange-600 font-bold mb-1">현재 잔여 보상휴가</div>
                     <div className="text-xl font-bold text-gray-800">
-                      {Number(profile.extra_leave_days - profile.extra_used_leave_days).toFixed(2)}
-                      <span className="text-xs font-normal text-gray-400 ml-1">/ {Number(profile.extra_leave_days).toFixed(1)}</span>
+                      {/* ⭕️ 보상휴가는 소수점 1자리 + 불필요한 0 제거 */}
+                      {Number(profile.extra_leave_days - profile.extra_used_leave_days).toFixed(2).replace(/\.0$/, '')}
+                      <span className="text-xs font-normal text-gray-400 ml-1">/ {Number(profile.extra_leave_days).toFixed(2).replace(/\.0$/, '')}</span>
                     </div>
                   </div>
                 </div>
@@ -384,7 +386,8 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                                     {new Date(item.created_at).toLocaleDateString()} 신청
                                   </div>
                                   <div className={`font-bold ${item.request_type === 'cancel' ? 'text-gray-400 line-through' : 'text-blue-600'}`}>
-                                    +{Number(item.recognized_hours).toFixed(1)}h
+                                    {/* ⭕️ 변경: 8로 나누어 '일'로 계산하고 소수점 2자리까지 표시 */}
+                                    +{Number(Number(item.recognized_hours) / 8).toFixed(2)}일
                                   </div>
                                 </div>
                               </div>
