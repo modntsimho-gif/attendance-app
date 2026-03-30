@@ -348,31 +348,40 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
           .eq("user_id", user.id)
           .order("created_at", { ascending: false });
           
-        // ⭐️ 2. [NEW] 현재 '결재 대기 중(pending)'인 휴가 신청서들 가져오기
+        // 2. 현재 '결재 대기 중(pending)'인 휴가 신청서들 가져오기
+        // ✅ 수정된 코드 (안전하게 모든 컬럼 가져오기)
         const { data: pendingLeaves } = await supabase
           .from("leave_requests")
-          .select("overtime_request_ids, overtime_request_id")
+          .select("*") 
           .eq("user_id", user.id)
           .eq("status", "pending");
 
-        // ⭐️ 3. [NEW] 대기 중인 신청서에서 사용 중인 초과근무 ID 추출 (잠금 처리)
+        // ⭐️ 3. [수정] 대기 중인 신청서에서 사용 중인 초과근무 ID 추출 (배열/문자열 완벽 대응)
         const lockedOtIds = new Set<string>();
         if (pendingLeaves) {
           pendingLeaves.forEach(leave => {
             const rawIds = leave.overtime_request_ids || leave.overtime_request_id;
             if (rawIds) {
               try {
-                // 배열 형태면 파싱해서 모두 추가
-                const ids = typeof rawIds === 'string' && rawIds.startsWith('[') 
-                  ? JSON.parse(rawIds) 
-                  : [rawIds];
-                ids.forEach((id: string) => lockedOtIds.add(id));
+                // DB에서 이미 배열(JSON) 형태로 넘어온 경우
+                if (Array.isArray(rawIds)) {
+                  rawIds.forEach(id => lockedOtIds.add(id));
+                } 
+                // DB에서 문자열(Text) 형태로 넘어온 경우
+                else if (typeof rawIds === 'string') {
+                  const parsed = rawIds.startsWith('[') ? JSON.parse(rawIds) : [rawIds];
+                  parsed.forEach((id: string) => lockedOtIds.add(id));
+                }
               } catch(e) {
-                lockedOtIds.add(rawIds as string);
+                // 파싱 실패 시 단일 텍스트로 간주하고 추가
+                lockedOtIds.add(String(rawIds));
               }
             }
           });
         }
+        
+        // 💡 디버깅용: F12 개발자 도구 콘솔에서 어떤 ID들이 잠겼는지 확인할 수 있습니다.
+        // console.log("잠긴 초과근무 IDs:", Array.from(lockedOtIds));
 
         if (otData) {
           const itemMap = new Map<string, any>();
@@ -407,9 +416,10 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
             group.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
             const latest = group[0]; 
 
-            // ⭐️ 4. [수정] 승인됨 + 취소아님 + "결재 대기 중인 내역에 포함되지 않음(!lockedOtIds.has)"
+            // 4. 승인됨 + 취소아님 + "결재 대기 중인 내역에 포함되지 않음(!lockedOtIds.has)"
             if (latest.status === 'approved' && latest.request_type !== 'cancel') {
               const remaining = (latest.recognized_hours || 0) - (latest.used_hours || 0);
+              // ⭐️ 잠긴 ID 목록에 없는 초과근무만 목록에 추가
               if (remaining > 0 && !lockedOtIds.has(latest.id)) {
                 validOvertimes.push(latest);
               }
