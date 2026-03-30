@@ -23,13 +23,12 @@ export default async function EmployeeDetailPage({ params }: PageProps) {
       .from("leave_requests")
       .select(`
         *,
-        overtime_requests ( title ),
         approval_lines (
           status,
           updated_at,
           profiles ( name )
         )
-      `)
+      `) // ⭐️ [수정됨] overtime_requests ( title ) 조인 삭제
       .eq("user_id", userId)
       .order("start_date", { ascending: false }),
 
@@ -47,7 +46,7 @@ export default async function EmployeeDetailPage({ params }: PageProps) {
       .eq("user_id", userId)
       .order("work_date", { ascending: false }),
 
-    // ⭐️ (4) [NEW] 연도별 연차 할당량 조회
+    // (4) 연도별 연차 할당량 조회
     supabase
       .from("annual_leave_allocations")
       .select("*")
@@ -59,7 +58,7 @@ export default async function EmployeeDetailPage({ params }: PageProps) {
     return notFound();
   }
 
-  // ⭐️ 데이터 가공 함수: 결재선에서 승인/반려한 사람의 이름을 추출
+  // 데이터 가공 함수: 결재선에서 승인/반려한 사람의 이름을 추출
   const processApprover = (items: any[]) => {
     if (!items) return [];
     
@@ -81,7 +80,7 @@ export default async function EmployeeDetailPage({ params }: PageProps) {
   const profile = profileRes.data;
   const leaves = processApprover(leaveRes.data || []);
   const overtimes = processApprover(overtimeRes.data || []);
-  const allocations = allocationRes.data || []; // 연도별 할당 정보
+  const allocations = allocationRes.data || []; 
 
   // 2. Client Component로 데이터 전달
   return (
@@ -89,7 +88,7 @@ export default async function EmployeeDetailPage({ params }: PageProps) {
       profile={profile}
       leaves={leaves}
       overtimes={overtimes}
-      allocations={allocations} // ⭐️ 전달
+      allocations={allocations} 
     />
   );
 }

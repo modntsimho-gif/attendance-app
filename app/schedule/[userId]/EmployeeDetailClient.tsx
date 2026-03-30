@@ -10,10 +10,10 @@ interface EmployeeDetailClientProps {
   profile: any;
   leaves: any[];
   overtimes: any[];
-  allocations: any[]; // ⭐️ 추가된 Prop
+  allocations: any[]; 
 }
 
-// 그룹화 함수 (기존 유지)
+// 그룹화 함수
 const groupHistory = (data: any[], idField: string, parentField: string) => {
   if (!data || data.length === 0) return [];
 
@@ -54,7 +54,6 @@ const groupHistory = (data: any[], idField: string, parentField: string) => {
 export default function EmployeeDetailClient({ profile, leaves, overtimes, allocations }: EmployeeDetailClientProps) {
   const currentYear = new Date().getFullYear();
   
-  // ⭐️ [STATE] 선택된 연도 (기본값: 올해)
   const [selectedYear, setSelectedYear] = useState(currentYear);
 
   const [selectedLeave, setSelectedLeave] = useState<any>(null);
@@ -63,27 +62,21 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
   const [selectedOvertime, setSelectedOvertime] = useState<any>(null);
   const [isOvertimeModalOpen, setIsOvertimeModalOpen] = useState(false);
 
-  // ⭐️ [MEMO] 연도별 데이터 필터링 및 계산
   const { filteredLeaves, filteredOvertimes, yearStats } = useMemo(() => {
     const yearStr = selectedYear.toString();
 
-    // 1. 리스트 필터링 (시작일 기준)
     const leavesInYear = leaves.filter(l => l.start_date && l.start_date.startsWith(yearStr));
     const overtimesInYear = overtimes.filter(o => o.work_date && o.work_date.startsWith(yearStr));
 
-    // 2. 총 연차 (Allocation 테이블 우선 확인 -> 없으면 프로필(올해인 경우만) -> 0)
     const allocData = allocations.find(a => a.year === selectedYear);
     let totalAnnualLeave = 0;
     
     if (allocData) {
       totalAnnualLeave = allocData.total_days;
     } else if (selectedYear === currentYear) {
-      // 할당 정보가 없는데 올해라면, 프로필의 현재 스냅샷 사용
       totalAnnualLeave = profile.total_leave_days || 0;
     }
 
-    // 3. 사용 연차 계산 (승인된 건만 합산)
-    // A. 먼저 휴가 신청 내역에서 '연차', '반차', '반반차' 사용량을 모두 합산합니다.
     let usedAnnualLeave = leavesInYear
       .filter(l => 
         l.status === 'approved' && 
@@ -96,8 +89,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
       )
       .reduce((sum, l) => sum + Number(l.total_leave_days), 0);
 
-    // B. ⭐️ 만약 올해를 조회 중이라면, profiles 테이블의 used_leave_days 값을 우선 반영합니다.
-    // (서민해 님처럼 DB 프로필에 0.25가 직접 기록된 경우를 처리)
     if (selectedYear === currentYear) {
       const profileUsed = Number(profile.used_leave_days || 0);
       if (profileUsed > usedAnnualLeave) {
@@ -115,7 +106,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
     };
   }, [selectedYear, leaves, overtimes, allocations, profile, currentYear]);
 
-  // 그룹화는 필터링된 데이터로 수행
   const groupedLeaves = useMemo(() => groupHistory(filteredLeaves, 'id', 'original_leave_request_id'), [filteredLeaves]);
   const groupedOvertimes = useMemo(() => groupHistory(filteredOvertimes, 'id', 'original_overtime_request_id'), [filteredOvertimes]);
 
@@ -147,7 +137,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
     }
   };
 
-  // 연도 목록 생성 (데이터가 있는 연도 + 현재 연도)
   const availableYears = Array.from(new Set([
     currentYear,
     ...allocations.map(a => a.year),
@@ -176,10 +165,8 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                 </div>
               </div>
 
-              {/* ⭐️ 연도 선택 및 통계 */}
               <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto items-end md:items-center">
                 
-                {/* 연도 선택기 */}
                 <div className="relative">
                   <select 
                     value={selectedYear} 
@@ -194,21 +181,17 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                 </div>
 
                 <div className="flex gap-4 w-full md:w-auto">
-                  {/* ⭐️ 연차 정보 (선택된 연도 기준) */}
                   <div className="flex-1 md:flex-none bg-blue-50 p-4 rounded-lg border border-blue-100 text-center min-w-[140px]">
                     <div className="text-xs text-blue-600 font-bold mb-1">{selectedYear}년 잔여 연차</div>
                     <div className="text-xl font-bold text-gray-800">
                       {Number(yearStats.remaining).toFixed(2)}
-                      {/* ⭕️ 총 연차도 소수점 2자리로 통일 */}
                       <span className="text-xs font-normal text-gray-400 ml-1">/ {Number(yearStats.total).toFixed(2)}</span>
                     </div>
                   </div>
 
-                  {/* 보상휴가는 누적 개념이므로 프로필의 현재 잔고 표시 (연도 필터링 애매함) */}
                   <div className="flex-1 md:flex-none bg-orange-50 p-4 rounded-lg border border-orange-100 text-center min-w-[140px]">
                     <div className="text-xs text-orange-600 font-bold mb-1">현재 잔여 보상휴가</div>
                     <div className="text-xl font-bold text-gray-800">
-                      {/* ⭕️ 보상휴가는 소수점 1자리 + 불필요한 0 제거 */}
                       {Number(profile.extra_leave_days - profile.extra_used_leave_days).toFixed(2).replace(/\.0$/, '')}
                       <span className="text-xs font-normal text-gray-400 ml-1">/ {Number(profile.extra_leave_days).toFixed(2).replace(/\.0$/, '')}</span>
                     </div>
@@ -220,7 +203,7 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             
-            {/* 1. 휴가 신청 내역 (타임라인) - 연도 필터 적용됨 */}
+            {/* 1. 휴가 신청 내역 */}
             <section className="space-y-4">
               <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                 <Calendar className="w-5 h-5 text-blue-600" />
@@ -247,9 +230,10 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                         {group.map((item, idx) => {
                           const isLatest = idx === 0;
                           
-                          const sourceOvertime = item.overtime_request_id 
-                            ? overtimes.find(ot => ot.id === item.overtime_request_id) 
-                            : null;
+                          // ⭐️ [변경] 배열 형태의 overtime_request_ids를 순회하여 원천 초과근무 객체들을 찾습니다.
+                          const sourceOvertimes = Array.isArray(item.overtime_request_ids) 
+                            ? item.overtime_request_ids.map((id: string) => overtimes.find(ot => ot.id === id)).filter(Boolean)
+                            : [];
 
                           return (
                             <div 
@@ -285,17 +269,23 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                                 <div className="text-sm text-gray-600 mb-2">
                                   <div className="truncate w-full text-xs text-gray-500 mb-1">{item.reason}</div>
                                   
-                                  {sourceOvertime && (
-                                    <div 
-                                      onClick={(e) => {
-                                        e.stopPropagation(); 
-                                        handleOvertimeClick(sourceOvertime);
-                                      }}
-                                      className="inline-flex items-center gap-1.5 bg-orange-50 border border-orange-200 text-orange-700 px-2 py-1 rounded text-xs font-medium hover:bg-orange-100 hover:border-orange-300 transition-colors group/link mb-1"
-                                    >
-                                      <Link2 className="w-3 h-3" />
-                                      <span>원천: {sourceOvertime.title}</span>
-                                      <ChevronRight className="w-3 h-3 opacity-50 group-hover/link:opacity-100" />
+                                  {/* ⭐️ [변경] 찾은 원천 초과근무 배열을 순회하며 뱃지를 여러 개 렌더링합니다. */}
+                                  {sourceOvertimes.length > 0 && (
+                                    <div className="flex flex-wrap gap-2 mb-1">
+                                      {sourceOvertimes.map((ot: any, i: number) => (
+                                        <div 
+                                          key={i}
+                                          onClick={(e) => {
+                                            e.stopPropagation(); 
+                                            handleOvertimeClick(ot);
+                                          }}
+                                          className="inline-flex items-center gap-1.5 bg-orange-50 border border-orange-200 text-orange-700 px-2 py-1 rounded text-xs font-medium hover:bg-orange-100 hover:border-orange-300 transition-colors group/link"
+                                        >
+                                          <Link2 className="w-3 h-3" />
+                                          <span>원천: {ot.title}</span>
+                                          <ChevronRight className="w-3 h-3 opacity-50 group-hover/link:opacity-100" />
+                                        </div>
+                                      ))}
                                     </div>
                                   )}
 
@@ -326,7 +316,7 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
               )}
             </section>
 
-            {/* 2. 초과근무 내역 (타임라인) - 연도 필터 적용됨 */}
+            {/* 2. 초과근무 내역 */}
             <section className="space-y-4">
               <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                 <Clock className="w-5 h-5 text-orange-600" />
@@ -402,7 +392,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                                     {new Date(item.created_at).toLocaleDateString()} 신청
                                   </div>
                                   <div className={`font-bold ${item.request_type === 'cancel' ? 'text-gray-400 line-through' : 'text-blue-600'}`}>
-                                    {/* ⭕️ 변경: 8로 나누어 '일'로 계산하고 소수점 2자리까지 표시 */}
                                     +{Number(Number(item.recognized_hours) / 8).toFixed(2)}일
                                   </div>
                                 </div>
