@@ -13,11 +13,12 @@ import ApprovalModal from "@/components/ApprovalModal";
 import OvertimeApplicationModal from "@/components/OvertimeApplicationModal"; 
 import TeamListWidget, { Employee } from "@/components/TeamListWidget"; 
 import DashboardWidgets from "@/components/DashboardWidgets";
+
 // ⭐️ [NEW] 푸시 알림 매니저 컴포넌트 불러오기 (경로는 실제 파일 위치에 맞게 수정해 주세요)
 import PushManager from "@/components/PushManager"; 
 import { 
   PlusCircle, Clock, PieChart, Calendar, History, List, Inbox, ChevronRight, UserCog, 
-  Settings, Users, AlertTriangle, LogOut, RotateCcw
+  Settings, Users, AlertTriangle, LogOut, RotateCcw , RefreshCw // 👈 추가
 } from "lucide-react";
 
 interface DashboardClientProps {
@@ -68,7 +69,10 @@ export default function DashboardClient({
   
   const router = useRouter();
   const supabase = createClient(); 
-  
+
+    // 2. 새로고침 로딩 상태 추가 👈
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
   const [displayTotalLeave, setDisplayTotalLeave] = useState(totalLeave);
   const [localLeaveCount, setLocalLeaveCount] = useState(leaveRequestCount);
   const [localOvertimeCount, setLocalOvertimeCount] = useState(overtimeRequestCount);
@@ -182,6 +186,17 @@ export default function DashboardClient({
       console.error("로그아웃 실패:", error);
       alert("로그아웃 중 오류가 발생했습니다.");
     }
+  };
+
+  // 3. 새로고침 함수 추가 👈
+  const handleRefresh = () => {
+    setIsRefreshing(true);
+    router.refresh(); // Next.js 서버 컴포넌트 데이터 재요청
+    
+    // 빙글빙글 도는 애니메이션을 위해 1초 뒤에 상태 해제
+    setTimeout(() => {
+      setIsRefreshing(false);
+    }, 1000);
   };
 
   const handleClockIn = async () => {
@@ -324,23 +339,33 @@ export default function DashboardClient({
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 w-full md:w-auto justify-end">
+            {/* ⭐️ [NEW] 새로고침 버튼 추가 */}
+            <button 
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="flex items-center justify-center gap-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-4 py-2.5 rounded-xl shadow-sm hover:shadow-md transition-all font-bold text-sm"
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-blue-500' : ''}`} />
+              <span className="hidden sm:inline">새로고침</span>
+            </button>
+
             {role === 'manager' && (
               <Link 
                 href="/admin"
-                className="flex items-center gap-2 bg-gray-900 hover:bg-gray-800 text-white px-5 py-2.5 rounded-xl shadow-lg hover:shadow-xl transition-all font-bold text-sm"
+                className="flex items-center justify-center gap-2 bg-gray-900 hover:bg-gray-800 text-white px-5 py-2.5 rounded-xl shadow-lg hover:shadow-xl transition-all font-bold text-sm"
               >
                 <Settings className="w-4 h-4" />
-                관리자 페이지
+                <span className="hidden sm:inline">관리자</span>
               </Link>
             )}
             
             <button 
               onClick={handleLogout}
-              className="flex items-center gap-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-4 py-2.5 rounded-xl shadow-sm hover:shadow-md transition-all font-bold text-sm"
+              className="flex items-center justify-center gap-2 bg-white hover:bg-gray-50 text-red-600 border border-gray-200 px-4 py-2.5 rounded-xl shadow-sm hover:shadow-md transition-all font-bold text-sm"
             >
               <LogOut className="w-4 h-4" />
-              로그아웃
+              <span className="hidden sm:inline">로그아웃</span>
             </button>
           </div>
         </div>
