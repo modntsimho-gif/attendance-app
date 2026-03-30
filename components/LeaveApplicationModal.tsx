@@ -28,7 +28,6 @@ const REQUEST_TYPES = [
   { id: "cancel", label: "취소", icon: FileX2 },
 ];
 
-// ⭐️ [추가] 30분 단위 시간 옵션 생성 (00:00 ~ 23:30)
 const TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => {
   const hour = Math.floor(i / 2).toString().padStart(2, '0');
   const minute = i % 2 === 0 ? '00' : '30';
@@ -75,7 +74,8 @@ interface LeaveRecord {
   handover_notes?: string;
   status: string;
   created_at: string;
-  overtime_request_id?: string;
+  overtime_request_id?: string; // 기존 단일 ID 호환용
+  overtime_request_ids?: string; // ⭐️ 다중 ID JSON 배열 문자열
 }
 
 export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, initialData }: LeaveApplicationModalProps) {
@@ -113,8 +113,10 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
   const [endTime, setEndTime] = useState("");
 
   const [overtimeList, setOvertimeList] = useState<OvertimeRecord[]>([]);
-  const [selectedOvertimeId, setSelectedOvertimeId] = useState<string>("");
-  const [linkedOvertime, setLinkedOvertime] = useState<OvertimeRecord | null>(null);
+  
+  // ⭐️ [변경] 단일 ID에서 배열로 변경 (다중 선택 지원)
+  const [selectedOvertimeIds, setSelectedOvertimeIds] = useState<string[]>([]);
+  const [linkedOvertimes, setLinkedOvertimes] = useState<OvertimeRecord[]>([]);
 
   useEffect(() => {
     if (isOpen) {
@@ -128,7 +130,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
         setReason(initialData.reason || "");
         setHandoverNotes(initialData.handover_notes || "");
         
-        // ⭐️ [수정] DB 데이터(09:00:00)를 드롭다운 포맷(09:00)에 맞게 5자리만 자름
         setStartTime(initialData.start_time?.slice(0, 5) || "");
         setEndTime(initialData.end_time?.slice(0, 5) || "");
         
@@ -153,12 +154,26 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
           fetchOriginalLeave();
         }
 
-        if (initialData.overtime_request_id) {
-          const fetchLinkedOt = async () => {
-            const { data } = await supabase.from("overtime_requests").select("*").eq("id", initialData.overtime_request_id).single();
-            if (data) setLinkedOvertime(data);
+        // ⭐️ [변경] 여러 개의 연결된 초과근무 내역 불러오기
+        if (initialData.overtime_request_ids || initialData.overtime_request_id) {
+          const fetchLinkedOts = async () => {
+            let ids: string[] = [];
+            const rawIds = initialData.overtime_request_ids || initialData.overtime_request_id;
+            try {
+              // JSON 배열 문자열인지 확인 후 파싱
+              ids = typeof rawIds === 'string' && rawIds.startsWith('[') 
+                ? JSON.parse(rawIds) 
+                : [rawIds];
+            } catch(e) { 
+              ids = [rawIds];
+            }
+            
+            if (ids.length > 0) {
+              const { data } = await supabase.from("overtime_requests").select("*").in("id", ids);
+              if (data) setLinkedOvertimes(data);
+            }
           };
-          fetchLinkedOt();
+          fetchLinkedOts();
         }
 
         const fetchSavedApprovers = async () => {
@@ -195,9 +210,11 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
         setStartTime("");
         setEndTime("");
         setCalcResult({ duration: 0, totalDeduction: 0 });
+        
+        // ⭐️ [변경] 초기화 시 배열 비우기
         setOvertimeList([]);
-        setSelectedOvertimeId("");
-        setLinkedOvertime(null); 
+        setSelectedOvertimeIds([]);
+        setLinkedOvertimes([]); 
         setEditingApproverIndex(null);
         
         setRequestType("create");
@@ -287,7 +304,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
     setEndDate(leave.end_date);
     setSelectedLeaveType(leave.leave_type);
     
-    // ⭐️ [수정] 원본 데이터 불러올 때도 5자리로 자름
     setStartTime(leave.start_time?.slice(0, 5) || "");
     setEndTime(leave.end_time?.slice(0, 5) || "");
     setHandoverNotes(leave.handover_notes || "");
@@ -298,8 +314,15 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
         setReason(leave.reason || "");
     }
 
-    if (leave.overtime_request_id) {
-        setSelectedOvertimeId(leave.overtime_request_id);
+    // ⭐️ [변경] 원본 연차의 초과근무 매핑 데이터 복원 (배열 처리)
+    if (leave.overtime_request_ids || leave.overtime_request_id) {
+        const rawIds = leave.overtime_request_ids || leave.overtime_request_id;
+        try {
+            const ids = typeof rawIds === 'string' && rawIds.startsWith('[') ? JSON.parse(rawIds) : [rawIds];
+            setSelectedOvertimeIds(ids);
+        } catch(e) {
+            setSelectedOvertimeIds([rawIds as string]);
+        }
     }
 
     const factor = LEAVE_OPTIONS.find(opt => opt.label === leave.leave_type)?.days || 1.0;
@@ -320,7 +343,7 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
       };
       fetchOvertimes();
     } else {
-      if (!isViewMode) { setOvertimeList([]); setSelectedOvertimeId(""); }
+      if (!isViewMode) { setOvertimeList([]); setSelectedOvertimeIds([]); }
     }
   }, [selectedLeaveType, isOpen, isViewMode]);
 
@@ -408,19 +431,19 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
       return;
     }
 
+    // ⭐️ [변경] 대체휴무 신청 시 다중 선택된 시간 합산 검증
     if (selectedLeaveType.startsWith("대체휴무")) {
-      if (!selectedOvertimeId) { alert("대체휴무 정보가 올바르지 않습니다."); return; }
+      if (selectedOvertimeIds.length === 0) { alert("대체휴무 정보가 올바르지 않습니다. (초과근무를 선택해주세요)"); return; }
       
       if (requestType !== 'cancel') {
-          const selectedOvertime = overtimeList.find(ot => ot.id === selectedOvertimeId);
-          if (selectedOvertime) {
-            const remainingHours = (selectedOvertime.recognized_hours || 0) - (selectedOvertime.used_hours || 0);
-            const actualRequiredDays = calcResult.totalDeduction > 0 ? calcResult.totalDeduction : leaveFactor;
-            const requiredHours = actualRequiredDays * 8; 
-            if (remainingHours < requiredHours) {
-              alert(`선택한 초과근무의 잔여 시간(${remainingHours}시간)이 신청하려는 시간(${requiredHours}시간)보다 부족합니다.`);
-              return;
-            }
+          const selectedOtItems = overtimeList.filter(ot => selectedOvertimeIds.includes(ot.id));
+          const totalRemaining = selectedOtItems.reduce((sum, ot) => sum + ((ot.recognized_hours || 0) - (ot.used_hours || 0)), 0);
+          const actualRequiredDays = calcResult.totalDeduction > 0 ? calcResult.totalDeduction : leaveFactor;
+          const requiredHours = actualRequiredDays * 8; 
+          
+          if (totalRemaining < requiredHours) {
+            alert(`선택한 초과근무들의 총 잔여 시간(${totalRemaining}시간)이 신청하려는 시간(${requiredHours}시간)보다 부족합니다.`);
+            return;
           }
       }
     }
@@ -457,10 +480,15 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
   if (!isOpen) return null;
 
   const isCompensatory = selectedLeaveType.startsWith("대체휴무");
-  const selectedOtItem = overtimeList.find(ot => ot.id === selectedOvertimeId);
+  
+  // ⭐️ [변경] 선택된 항목들의 총 잔여 시간 계산
   const currentReqDays = calcResult.totalDeduction > 0 ? calcResult.totalDeduction : leaveFactor;
   const currentReqHours = currentReqDays * 8;
-  const isSelectionValid = requestType === 'cancel' || (selectedOtItem && ((selectedOtItem.recognized_hours - selectedOtItem.used_hours) >= currentReqHours));
+  const selectedOtItems = overtimeList.filter(ot => selectedOvertimeIds.includes(ot.id));
+  const totalSelectedRemaining = selectedOtItems.reduce((sum, ot) => sum + ((ot.recognized_hours || 0) - (ot.used_hours || 0)), 0);
+  
+  // 합산된 시간이 필요 시간보다 크거나 같으면 유효함
+  const isSelectionValid = requestType === 'cancel' || (selectedOvertimeIds.length > 0 && totalSelectedRemaining >= currentReqHours);
 
   const isFormDisabled = isViewMode || requestType === 'cancel';
   
@@ -472,7 +500,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col relative">
         
-        {/* 헤더 */}
         <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
           <div>
             <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
@@ -491,7 +518,8 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
         <form action={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
           <input type="hidden" name="approversJson" value={JSON.stringify(approvers)} />
           <input type="hidden" name="totalLeaveDays" value={calcResult.totalDeduction} />
-          <input type="hidden" name="overtimeRequestId" value={selectedOvertimeId} />
+          {/* ⭐️ [변경] 배열을 JSON 문자열로 변환하여 전송 */}
+          <input type="hidden" name="overtimeRequestIds" value={JSON.stringify(selectedOvertimeIds)} />
           <input type="hidden" name="requestType" value={requestType} />
           <input type="hidden" name="originalLeaveId" value={selectedOriginalLeaveId} />
           
@@ -507,7 +535,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
 
           <div className="flex-1 overflow-y-auto p-6 space-y-8">
             
-            {/* 결재선 섹션 */}
             <section>
                <div className="flex justify-between items-center mb-3">
                 <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
@@ -592,10 +619,8 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
 
             <hr className="border-gray-100" />
 
-            {/* 내용 섹션 */}
             <section className="space-y-6 pointer-events-auto">
               
-              {/* 신청 유형 선택 */}
               <div>
                 <label className="block text-sm font-bold text-gray-800 mb-2">신청 유형</label>
                 <div className="flex gap-4">
@@ -628,7 +653,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                 </div>
               </div>
 
-              {/* 변경/취소 대상 선택 섹션 */}
               {(requestType === 'update' || requestType === 'cancel') && (
                 <div className="animate-in fade-in slide-in-from-top-2">
                   <label className="block text-sm font-bold text-gray-800 mb-2">
@@ -719,7 +743,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                 </div>
               )}
 
-              {/* 휴가 종류 선택 */}
               <div className={isFormDisabled ? "pointer-events-none grayscale" : ""}>
                 <label className="block text-sm font-bold text-gray-800 mb-2">휴가 종류</label>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -765,32 +788,44 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                       ? 'bg-blue-50 border-blue-200' 
                       : 'bg-gray-50 border-gray-200'
                 }`}>
-                  <div className="flex items-center gap-2 mb-3">
-                    <Clock className={`w-5 h-5 ${isSelectionValid || isViewMode ? 'text-blue-600' : 'text-gray-600'}`} />
-                    <h4 className={`text-sm font-bold ${isSelectionValid || isViewMode ? 'text-blue-800' : 'text-gray-800'}`}>
-                      {isViewMode ? "사용된 보상 휴가 원천" : "보상 휴가 원천 선택 (승인된 초과근무)"}
-                    </h4>
+                  {/* ⭐️ [변경] 다중 선택 헤더 및 남은 시간 현황판 */}
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Clock className={`w-5 h-5 ${isSelectionValid || isViewMode ? 'text-blue-600' : 'text-gray-600'}`} />
+                      <h4 className={`text-sm font-bold ${isSelectionValid || isViewMode ? 'text-blue-800' : 'text-gray-800'}`}>
+                        {isViewMode ? "사용된 보상 휴가 원천" : "보상 휴가 원천 선택 (다중 선택 가능)"}
+                      </h4>
+                    </div>
+                    {!isViewMode && (
+                      <div className={`text-xs font-bold px-3 py-1.5 rounded-full border ${isSelectionValid ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-red-50 text-red-600 border-red-200'}`}>
+                        모은 시간: {totalSelectedRemaining}h / 필요 시간: {currentReqHours}h
+                      </div>
+                    )}
                   </div>
                   
                   {isViewMode ? (
-                    linkedOvertime ? (
-                      <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-sm">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <div className="text-sm font-bold text-gray-900 mb-0.5">{linkedOvertime.title}</div>
-                            <div className="text-xs text-gray-500 flex items-center gap-1">
-                               <CalendarIcon className="w-3 h-3"/> {linkedOvertime.work_date}
-                               <span className="text-gray-300">|</span>
-                               {linkedOvertime.start_time?.slice(0,5)}~{linkedOvertime.end_time?.slice(0,5)}
+                    linkedOvertimes.length > 0 ? (
+                      <div className="space-y-2">
+                        {linkedOvertimes.map(ot => (
+                          <div key={ot.id} className="bg-white p-3 border border-gray-200 rounded-lg shadow-sm">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <div className="text-sm font-bold text-gray-900 mb-0.5">{ot.title}</div>
+                                <div className="text-xs text-gray-500 flex items-center gap-1">
+                                   <CalendarIcon className="w-3 h-3"/> {ot.work_date}
+                                   <span className="text-gray-300">|</span>
+                                   {ot.start_time?.slice(0,5)}~{ot.end_time?.slice(0,5)}
+                                </div>
+                                <div className="text-xs text-gray-500 mt-1 truncate max-w-[200px]">{ot.reason}</div>
+                              </div>
+                              <div className="text-right">
+                                 <span className="inline-flex items-center px-2 py-1 rounded text-xs font-bold bg-blue-100 text-blue-700">
+                                   총 {ot.recognized_hours}시간
+                                 </span>
+                              </div>
                             </div>
-                            <div className="text-xs text-gray-500 mt-1 truncate max-w-[200px]">{linkedOvertime.reason}</div>
                           </div>
-                          <div className="text-right">
-                             <span className="inline-flex items-center px-2 py-1 rounded text-xs font-bold bg-blue-100 text-blue-700">
-                               총 {linkedOvertime.recognized_hours}시간
-                             </span>
-                          </div>
-                        </div>
+                        ))}
                       </div>
                     ) : (
                       <div className="text-sm text-gray-400 p-2">연결된 초과근무 정보를 불러올 수 없습니다.</div>
@@ -805,27 +840,29 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                         <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
                           {overtimeList.map((ot) => {
                             const remaining = (ot.recognized_hours || 0) - (ot.used_hours || 0);
-                            const currentRequiredDays = calcResult.totalDeduction > 0 ? calcResult.totalDeduction : leaveFactor;
-                            const requiredHours = currentRequiredDays * 8;
-                            const isEnough = remaining >= requiredHours;
+                            const isSelected = selectedOvertimeIds.includes(ot.id);
 
                             return (
                               <label key={ot.id} className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-all ${
-                                selectedOvertimeId === ot.id 
+                                isSelected 
                                   ? 'bg-blue-100 border-blue-500 ring-1 ring-blue-500' 
-                                  : isEnough 
-                                    ? 'bg-white hover:bg-gray-50 border-gray-200' 
-                                    : 'bg-gray-50 border-gray-200 opacity-60'
+                                  : 'bg-white hover:bg-gray-50 border-gray-200'
                               }`}>
                                 <div className="flex items-center gap-3">
+                                  {/* ⭐️ [변경] 라디오 버튼 -> 체크박스 */}
                                   <input 
-                                    type="radio" 
+                                    type="checkbox" 
                                     name="overtimeSelect" 
                                     value={ot.id} 
-                                    checked={selectedOvertimeId === ot.id}
-                                    disabled={!isEnough}
-                                    onChange={() => setSelectedOvertimeId(ot.id)}
-                                    className="w-4 h-4 text-blue-600 focus:ring-blue-500 flex-shrink-0"
+                                    checked={isSelected}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setSelectedOvertimeIds(prev => [...prev, ot.id]);
+                                      } else {
+                                        setSelectedOvertimeIds(prev => prev.filter(id => id !== ot.id));
+                                      }
+                                    }}
+                                    className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 flex-shrink-0 cursor-pointer"
                                   />
                                   <div>
                                     <div className="text-sm font-bold text-gray-900 mb-0.5">{ot.title}</div>
@@ -838,7 +875,7 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                                   </div>
                                 </div>
                                 <div className="text-right flex-shrink-0 pl-2">
-                                  <div className={`text-sm font-bold ${isEnough ? 'text-blue-600' : 'text-red-500'}`}>
+                                  <div className="text-sm font-bold text-blue-600">
                                     잔여 {remaining}시간
                                   </div>
                                   <div className="text-xs text-gray-500">
@@ -861,7 +898,7 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                       ) : (
                         <p className="text-xs text-red-600 mt-2 flex items-center gap-1">
                           <AlertCircle className="w-3 h-3" />
-                          신청하려는 연차 시간({currentReqHours}시간)보다 잔여 시간이 많은 항목을 선택해주세요.
+                          필요한 시간({currentReqHours}시간)을 채우기 위해 초과근무를 더 선택해주세요.
                         </p>
                       )}
                     </>
@@ -895,7 +932,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                 </div>
               </div>
               
-              {/* ⭐️ [수정] 사용 시간 (선택) - 30분 단위 드롭다운 적용 */}
               <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${isFormDisabled ? "pointer-events-none grayscale" : ""}`}>
                 <div>
                   <label className="block text-sm font-bold text-gray-800 mb-2">사용 시간 (선택)</label>
@@ -971,6 +1007,7 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
         </form>
 
         {isApproverSelectOpen && (
+          // ... 기존 결재자 선택 모달 코드 유지 ...
           <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/10 backdrop-blur-[1px]">
              <div className="bg-white rounded-xl shadow-2xl border border-gray-200 w-64 max-h-[300px] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
               <div className="px-4 py-3 border-b bg-gray-50 flex justify-between items-center">
@@ -1002,13 +1039,15 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
         )}
 
         {isLineManagerOpen && (
+          // ... 기존 결재선 관리 모달 코드 유지 ...
            <div className="absolute inset-0 z-[70] flex items-center justify-center bg-white/80 backdrop-blur-sm p-4">
               <div className="bg-white rounded-xl shadow-2xl border border-gray-200 w-full max-w-sm flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
              <div className="px-5 py-4 border-b bg-gray-50 flex justify-between items-center">
                <h4 className="font-bold text-gray-800 flex items-center gap-2">
                  <Bookmark className="w-4 h-4 text-blue-600" /> 나만의 결재선
                </h4>
-               <button type="button" onClick={() => setIsLineManagerOpen(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+               <button type="button" onClick={() => setIsLineManagerOpen(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button
+>
              </div>
              <div className="p-5 flex-1 overflow-y-auto space-y-6">
                <div>

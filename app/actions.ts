@@ -20,9 +20,21 @@ export async function submitLeaveRequest(formData: FormData) {
   const endDate = formData.get("endDate") as string;
   const totalLeaveDays = parseFloat(formData.get("totalLeaveDays") as string || "0");
 
-  // [기존] 초과근무 ID 처리
-  const rawOtId = formData.get("overtimeRequestId")?.toString();
-  const overtimeRequestId = (rawOtId && rawOtId.trim() !== "") ? rawOtId : null;
+  // ⭐️ [변경] 단일 ID 대신 다중 선택된 배열(JSON 문자열)을 받아서 파싱합니다.
+  const overtimeRequestIdsStr = formData.get("overtimeRequestIds") as string;
+  let overtimeRequestIds = null;
+  
+  if (overtimeRequestIdsStr) {
+    try {
+      const parsed = JSON.parse(overtimeRequestIdsStr);
+      // 빈 배열이 아닐 때만 값을 할당
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        overtimeRequestIds = parsed;
+      }
+    } catch (e) {
+      console.error("JSON 파싱 에러:", e);
+    }
+  }
 
   // ⭐️ [NEW] 신청 유형 및 원본 ID 처리
   const requestType = formData.get("requestType")?.toString() || "create";
@@ -37,9 +49,9 @@ export async function submitLeaveRequest(formData: FormData) {
     return { error: "필수 항목(휴가 종류, 기간)을 입력해주세요." };
   }
 
-  // [기존] 대체휴무인데 원천 ID가 없으면 에러
-  if (leaveType.startsWith("대체휴무") && !overtimeRequestId) {
-    return { error: "대체휴무 사용 시 보상 휴가 원천을 선택해야 합니다." };
+  // ⭐️ [변경] 대체휴무인데 선택된 초과근무가 하나도 없으면 에러 처리
+  if (leaveType.startsWith("대체휴무") && !overtimeRequestIds) {
+    return { error: "대체휴무 사용 시 보상 휴가 원천을 1개 이상 선택해야 합니다." };
   }
 
   // ⭐️ [NEW] 변경/취소인데 원본 ID가 없으면 에러 (방어 로직)
@@ -60,7 +72,9 @@ export async function submitLeaveRequest(formData: FormData) {
     
     total_leave_days: totalLeaveDays,
     deducted_hours: deductedHours,
-    overtime_request_id: overtimeRequestId, // null 또는 UUID
+    
+    // ⭐️ [변경] 컬럼명을 's'가 붙은 복수형으로 바꾸고, 파싱된 배열 데이터를 넣습니다.
+    overtime_request_ids: overtimeRequestIds, 
 
     // ⭐️ [NEW] 추가된 컬럼 매핑
     request_type: requestType,
