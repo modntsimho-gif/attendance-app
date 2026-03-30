@@ -60,6 +60,11 @@ interface OvertimeRecord {
   recognized_hours: number;
   used_hours: number;
   reason: string;
+  // ⭐️ 아래 4개 필드 추가
+  status?: string;
+  request_type?: string;
+  original_overtime_request_id?: string;
+  created_at?: string;
 }
 
 interface LeaveRecord {
@@ -335,10 +340,63 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
       const fetchOvertimes = async () => {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
-        const { data } = await supabase.from("overtime_requests").select("*").eq("user_id", user.id).eq("status", "approved").order("work_date", { ascending: false });
+        
+        // 1. 유저의 모든 초과근무 내역을 가져옵니다.
+        const { data } = await supabase
+          .from("overtime_requests")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false });
+          
         if (data) {
-          const available = data.filter(ot => (ot.recognized_hours || 0) - (ot.used_hours || 0) > 0);
-          setOvertimeList(available);
+          // 2. 연차와 동일하게 원본 ID를 기준으로 그룹화합니다.
+          const itemMap = new Map<string, any>();
+          const parentMap = new Map<string, string>();
+
+          data.forEach((item: any) => {
+            itemMap.set(item.id, item);
+            if (item.original_overtime_request_id) {
+              parentMap.set(item.id, item.original_overtime_request_id);
+            }
+          });
+
+          const findRootId = (currentId: string): string => {
+            let pointer = currentId;
+            while (parentMap.has(pointer)) {
+              pointer = parentMap.get(pointer)!;
+              if (!itemMap.has(pointer)) break;
+            }
+            return pointer;
+          };
+
+          const groups: Record<string, any[]> = {};
+          data.forEach((item: any) => {
+            const rootId = findRootId(item.id);
+            if (!groups[rootId]) groups[rootId] = [];
+            groups[rootId].push(item);
+          });
+
+          const validOvertimes: OvertimeRecord[] = [];
+
+          // 3. 각 그룹의 최신 상태를 확인하여 유효한 것만 필터링합니다.
+          Object.values(groups).forEach((group) => {
+            // 최신순 정렬
+            group.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+            const latest = group[0]; 
+
+            // ⭐️ 핵심: 최신 상태가 '승인'이고, '취소' 신청이 아닌 경우만 포함
+            if (latest.status === 'approved' && latest.request_type !== 'cancel') {
+              const remaining = (latest.recognized_hours || 0) - (latest.used_hours || 0);
+              if (remaining > 0) {
+                validOvertimes.push(latest);
+              }
+            }
+          });
+
+          // 4. 근무일 최신순으로 정렬하여 보여주기
+          validOvertimes.sort((a, b) => new Date(b.work_date).getTime() - new Date(a.work_date).getTime());
+          
+          setOvertimeList(validOvertimes);
         }
       };
       fetchOvertimes();
