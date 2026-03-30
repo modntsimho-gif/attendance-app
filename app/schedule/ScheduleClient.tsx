@@ -54,15 +54,10 @@ export default function ScheduleClient({
       
       const totalExtra = generatedOvertimeHours / 8; 
 
-      // B. 사용: 해당 연도 'reward' 또는 'replacement' 타입 휴가 합계
-      // B. 사용: 해당 연도 보상/대체 휴가 합계
-      const usedExtra = leaves
-        .filter(l => 
-          l.user_id === emp.id && 
-          (l.leave_type === '보상휴가' || l.leave_type === '대체휴가' || l.leave_type === '보상' || l.leave_type === '대체' || l.leave_type === 'reward' || l.leave_type === 'replacement') && // ⭕️ DB에 저장되는 실제 한글 명칭으로 수정 (필요에 따라 조정)
-          l.start_date?.startsWith(yearStr)
-        )
-        .reduce((sum, l) => sum + Number(l.total_leave_days), 0);
+      // B. 사용: 초과근무 테이블의 'used_hours' 합계 / 8 (8시간 = 1일)
+      const usedExtra = overtimes
+        .filter(o => o.user_id === emp.id && o.work_date?.startsWith(yearStr))
+        .reduce((sum, o) => sum + Number(o.used_hours || 0), 0) / 8;
 
       // 계산 결과 리턴
       return {

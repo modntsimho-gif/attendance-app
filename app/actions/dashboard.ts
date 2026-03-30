@@ -76,13 +76,21 @@ export async function getDashboardData() {
     // ---------------------------------------------------------
     // 1. [휴가 데이터 통합 조회]
     // ---------------------------------------------------------
-    const { data: rawLeaves } = await supabase
+    // 1. [휴가 데이터 통합 조회]
+    const { data: rawLeaves, error } = await supabase // 👈 error 추가
       .from("leave_requests")
       .select(`
         id, leave_type, start_date, end_date, status, request_type, created_at, user_id, original_leave_request_id,
         profiles!inner ( name, department, position, avatar_url )
       `)
       .gte("end_date", kstDateStr);
+
+    // 🚨 [NEW] 에러가 있는지 콘솔에 출력해 보기
+    if (error) {
+      console.error("🚨 Supabase 쿼리 에러 발생:", error);
+    }
+    
+    console.log("✅ 가져온 휴가 데이터 개수:", rawLeaves?.length);
 
     // ⭐️ 데이터 정제
     const validLeaves = filterValidLeaves(rawLeaves || []);

@@ -48,11 +48,12 @@ function filterLatestEvents(data: any[]) {
     const latest = group[0];
 
     // ❌ 제외 조건:
-    // 1. 최신 상태가 '취소(cancel)' 신청인 경우 (달력에서 제거)
-    // 2. 최신 상태가 '반려(rejected)'인 경우 (단, 변경 반려 시 원본 유지는 복잡하므로 여기선 단순화하여 미노출 처리하거나, 필요시 로직 강화)
-    //    -> 보통 변경 반려되면 이전 승인건이 유효해야 하나, UI 복잡도를 줄이기 위해 반려건은 제외합니다.
     if (latest.request_type === 'cancel') return;
     if (latest.status === 'rejected') return;
+    
+    // ✅ [NEW] 오직 'approved'(승인 완료) 상태인 것만 달력에 표시합니다!
+    // (pending 등 다른 상태는 모두 제외)
+    if (latest.status !== 'approved') return;
 
     validItems.push(latest);
   });

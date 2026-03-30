@@ -28,6 +28,13 @@ const REQUEST_TYPES = [
   { id: "cancel", label: "취소", icon: FileX2 },
 ];
 
+// ⭐️ [추가] 30분 단위 시간 옵션 생성 (00:00 ~ 23:30)
+const TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => {
+  const hour = Math.floor(i / 2).toString().padStart(2, '0');
+  const minute = i % 2 === 0 ? '00' : '30';
+  return `${hour}:${minute}`;
+});
+
 interface LeaveApplicationModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -120,8 +127,10 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
         setSelectedLeaveType(initialData.leave_type);
         setReason(initialData.reason || "");
         setHandoverNotes(initialData.handover_notes || "");
-        setStartTime(initialData.start_time || "");
-        setEndTime(initialData.end_time || "");
+        
+        // ⭐️ [수정] DB 데이터(09:00:00)를 드롭다운 포맷(09:00)에 맞게 5자리만 자름
+        setStartTime(initialData.start_time?.slice(0, 5) || "");
+        setEndTime(initialData.end_time?.slice(0, 5) || "");
         
         setRequestType(initialData.request_type || "create");
 
@@ -277,8 +286,10 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
     setStartDate(leave.start_date);
     setEndDate(leave.end_date);
     setSelectedLeaveType(leave.leave_type);
-    setStartTime(leave.start_time || "");
-    setEndTime(leave.end_time || "");
+    
+    // ⭐️ [수정] 원본 데이터 불러올 때도 5자리로 자름
+    setStartTime(leave.start_time?.slice(0, 5) || "");
+    setEndTime(leave.end_time?.slice(0, 5) || "");
     setHandoverNotes(leave.handover_notes || "");
 
     if (requestType === 'cancel') {
@@ -451,7 +462,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
   const currentReqHours = currentReqDays * 8;
   const isSelectionValid = requestType === 'cancel' || (selectedOtItem && ((selectedOtItem.recognized_hours - selectedOtItem.used_hours) >= currentReqHours));
 
-  // ⭐️ [수정] 비활성화 시 opacity-60 대신 pointer-events-none만 사용하고 색상은 개별 제어
   const isFormDisabled = isViewMode || requestType === 'cancel';
   
   const isOriginalRequired = requestType === 'update' || requestType === 'cancel';
@@ -469,7 +479,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
               <FileText className="w-5 h-5 text-blue-600" />
               {isViewMode ? "연차 신청서 상세" : "연차 신청서 작성"}
             </h2>
-            {/* ⭐️ [수정] text-gray-500 -> text-gray-600 */}
             <p className="text-xs text-gray-600 mt-1">
               {isViewMode ? `문서번호: LEAVE-${initialData.id.slice(0, 8)}` : "문서번호: 자동생성 (임시저장)"}
             </p>
@@ -501,7 +510,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
             {/* 결재선 섹션 */}
             <section>
                <div className="flex justify-between items-center mb-3">
-                {/* ⭐️ [수정] text-gray-700 -> text-gray-800 */}
                 <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
                   <Users className="w-4 h-4" /> {isViewMode ? "결재 진행 현황" : "결재선 지정"}
                 </h3>
@@ -520,12 +528,9 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
               <div className="flex items-center gap-3 overflow-x-auto pb-2 relative">
                 <div className="min-w-[100px] p-3 border border-blue-200 bg-blue-50 rounded-lg text-center flex-shrink-0">
                   <div className="text-xs text-blue-600 font-bold mb-1">기안</div>
-                  {/* ⭐️ [수정] text-gray-800 -> text-gray-900 */}
                   <div className="text-sm font-bold text-gray-900">나 (본인)</div>
-                  {/* ⭐️ [수정] text-gray-500 -> text-gray-600 */}
                   <div className="text-xs text-gray-600">신청완료</div>
                 </div>
-                {/* ⭐️ [수정] 화살표 색상 진하게 */}
                 <div className="text-gray-400">→</div>
                 
                 {approvers.map((app, idx) => (
@@ -538,7 +543,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                         !isViewMode ? 'bg-white border-blue-200 hover:border-blue-500 hover:shadow-md cursor-pointer' : 'bg-white border-blue-200'
                       }`}
                     >
-                      {/* ⭐️ [수정] text-gray-500 -> text-gray-600 */}
                       <div className="text-xs text-gray-600 mb-1 flex justify-center items-center gap-1">
                         결재 ({idx + 1}차) {isViewMode && renderStatusIcon(app.status)}
                       </div>
@@ -740,7 +744,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                           }}
                           className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500 flex-shrink-0" 
                         />
-                        {/* ⭐️ [수정] text-gray-700 -> text-gray-900 */}
                         <span className="text-sm text-gray-900 truncate font-medium" title={option.label}>{option.label}</span>
                       </div>
                       <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0 ${
@@ -870,7 +873,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                 <div>
                   <label className="block text-sm font-bold text-gray-800 mb-2">휴가 기간</label>
                   <div className="flex items-center gap-2">
-                    {/* ⭐️ [수정] text-gray-900 추가 및 disabled 스타일 개선 */}
                     <input type="date" name="startDate" disabled={isFormDisabled} value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-500" />
                     <span className="text-gray-400">~</span>
                     <input type="date" name="endDate" disabled={isFormDisabled} value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-500" />
@@ -892,23 +894,48 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                   </div>
                 </div>
               </div>
+              
+              {/* ⭐️ [수정] 사용 시간 (선택) - 30분 단위 드롭다운 적용 */}
               <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${isFormDisabled ? "pointer-events-none grayscale" : ""}`}>
                 <div>
                   <label className="block text-sm font-bold text-gray-800 mb-2">사용 시간 (선택)</label>
                   <div className="flex items-center gap-2">
-                    {/* ⭐️ [수정] text-gray-900 추가 */}
-                    <input type="time" name="startTime" disabled={isFormDisabled} value={startTime} onChange={(e) => setStartTime(e.target.value)} className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-500" />
+                    <select 
+                      name="startTime" 
+                      disabled={isFormDisabled} 
+                      value={startTime} 
+                      onChange={(e) => setStartTime(e.target.value)} 
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-500 bg-white"
+                    >
+                      <option value="">선택 안함</option>
+                      {TIME_OPTIONS.map(time => (
+                        <option key={`start-${time}`} value={time}>{time}</option>
+                      ))}
+                    </select>
+                    
                     <span className="text-gray-400">~</span>
-                    <input type="time" name="endTime" disabled={isFormDisabled} value={endTime} onChange={(e) => setEndTime(e.target.value)} className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-500" />
+                    
+                    <select 
+                      name="endTime" 
+                      disabled={isFormDisabled} 
+                      value={endTime} 
+                      onChange={(e) => setEndTime(e.target.value)} 
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-500 bg-white"
+                    >
+                      <option value="">선택 안함</option>
+                      {TIME_OPTIONS.map(time => (
+                        <option key={`end-${time}`} value={time}>{time}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
               </div>
+              
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-bold text-gray-800 mb-2">
                     {requestType === 'cancel' ? "취소 사유" : "휴가 사유"}
                   </label>
-                  {/* ⭐️ [수정] text-gray-900, placeholder:text-gray-500 추가 */}
                   <textarea 
                     name="reason" 
                     disabled={isViewMode} 
@@ -964,7 +991,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                       }} 
                       className="w-full text-left px-4 py-3 text-sm hover:bg-blue-50 rounded-lg flex justify-between items-center group transition-colors border-b border-gray-50 last:border-0"
                     >
-                      {/* ⭐️ [수정] text-gray-800 -> text-gray-900 */}
                       <span className="font-medium text-gray-900">{user.name}</span>
                       <span className="text-gray-500 text-xs bg-gray-100 px-2 py-0.5 rounded-full group-hover:bg-white">{user.rank}</span>
                     </button>
@@ -988,7 +1014,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                <div>
                  <label className="block text-xs font-bold text-gray-500 mb-2 uppercase">현재 설정 저장</label>
                  <div className="flex gap-2">
-                   {/* ⭐️ [수정] text-gray-900 추가 */}
                    <input type="text" placeholder="예: 팀장님 전결..." value={newLineTitle} onChange={(e) => setNewLineTitle(e.target.value)} className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none placeholder:text-gray-500" />
                    <button type="button" onClick={handleSaveLine} disabled={approvers.length === 0} className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-1"><Save className="w-4 h-4" /></button>
                  </div>

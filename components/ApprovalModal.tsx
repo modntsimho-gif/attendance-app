@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { X, Check, XCircle, FileText, User, Calendar, ChevronRight, Loader2, AlertCircle, FileInput, FilePenLine, FileX2, History, CheckCircle2, Clock } from "lucide-react";
+import { X, Check, XCircle, FileText, User, Calendar, ChevronRight, Loader2, AlertCircle, FileInput, FilePenLine, FileX2, History, CheckCircle2, Clock, Send } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import { useRouter } from "next/navigation";
 
@@ -27,19 +27,18 @@ interface ApprovalRequest {
   reason: string;
   handover?: string;
   requestDate: string;
+  createdAt: string; // 정렬용 원본 날짜
   status: string;
   rawData: any;
   
   isHoliday?: boolean;
   requestType: string;
-  
-  // ⭐️ [NEW] 결재 처리 일시 (내역 조회용)
   processedAt?: string;
 }
 
 export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
-  // ⭐️ [NEW] 뷰 모드 상태 (pending: 대기함, history: 내역함)
-  const [viewMode, setViewMode] = useState<"pending" | "history">("pending");
+  // ⭐️ [NEW] 뷰 모드에 "my_requests"(내 기안함) 추가
+  const [viewMode, setViewMode] = useState<"pending" | "history" | "my_requests">("pending");
   
   const [activeTab, setActiveTab] = useState("all");
   const [selectedRequest, setSelectedRequest] = useState<ApprovalRequest | null>(null);
@@ -65,137 +64,150 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // ⭐️ [MODIFIED] viewMode에 따라 쿼리 조건 분기
-      let query = supabase
-        .from("approval_lines")
-        .select("*")
-        .eq("approver_id", user.id)
-        .order("updated_at", { ascending: false }); // 최신순 정렬
+      let leaves: any[] = [];
+      let overtimes: any[] = [];
+      let lines: any[] = [];
 
-      if (viewMode === "pending") {
-        query = query.eq("status", "pending");
-      } else {
-        // 승인 또는 반려된 내역 조회
-        query = query.in("status", ["approved", "rejected"]);
+      // ⭐️ [NEW] 내가 올린 결재(기안함) 조회 로직
+      if (viewMode === "my_requests") {
+        const [leaveRes, overtimeRes] = await Promise.all([
+          supabase.from("leave_requests").select("*").eq("user_id", user.id),
+          supabase.from("overtime_requests").select("*").eq("user_id", user.id)
+        ]);
+
+        leaves = leaveRes.data || [];
+        overtimes = overtimeRes.data || [];
+
+        const leaveIds = leaves.map(l => l.id);
+        const overtimeIds = overtimes.map(o => o.id);
+
+        // 내 기안문서들의 결재선(상태) 가져오기
+        const linePromises = [];
+        if (leaveIds.length > 0) {
+          linePromises.push(supabase.from("approval_lines").select("*").in("leave_request_id", leaveIds));
+        }
+        if (overtimeIds.length > 0) {
+          linePromises.push(supabase.from("approval_lines").select("*").in("overtime_request_id", overtimeIds));
+        }
+
+        const lineResults = await Promise.all(linePromises);
+        lines = lineResults.flatMap(res => res.data || []);
+
+      } 
+      // 기존 로직: 결재 수신함 (대기/내역)
+      else {
+        let query = supabase
+          .from("approval_lines")
+          .select("*")
+          .eq("approver_id", user.id)
+          .order(viewMode === "pending" ? "created_at" : "updated_at", { ascending: false, nullsFirst: false });
+
+        if (viewMode === "pending") {
+          query = query.eq("status", "pending");
+        } else {
+          query = query.in("status", ["approved", "rejected"]);
+        }
+
+        const { data: fetchedLines, error: lineError } = await query;
+
+        if (lineError || !fetchedLines || fetchedLines.length === 0) {
+          setRequests([]);
+          setLoading(false);
+          return;
+        }
+        lines = fetchedLines;
+
+        const leaveIds = lines.map(l => l.leave_request_id).filter(Boolean);
+        const overtimeIds = lines.map(l => l.overtime_request_id).filter(Boolean);
+
+        const [leaveRes, overtimeRes] = await Promise.all([
+          leaveIds.length > 0 ? supabase.from("leave_requests").select("*").in("id", leaveIds) : Promise.resolve({ data: [] }),
+          overtimeIds.length > 0 ? supabase.from("overtime_requests").select("*").in("id", overtimeIds) : Promise.resolve({ data: [] })
+        ]);
+
+        leaves = leaveRes.data || [];
+        overtimes = overtimeRes.data || [];
       }
 
-      const { data: lines, error: lineError } = await query;
+      // 작성자 프로필 가져오기
+      const userIds = [...new Set([
+        ...leaves.map(l => l.user_id),
+        ...overtimes.map(o => o.user_id)
+      ])];
 
-      if (lineError || !lines || lines.length === 0) {
-        setRequests([]);
-        setLoading(false);
-        return;
-      }
+      const { data: profiles } = userIds.length > 0 
+        ? await supabase.from("profiles").select("id, name, position").in("id", userIds)
+        : { data: [] };
 
-      const formattedRequests: ApprovalRequest[] = [];
-
-      for (const line of lines) {
-        let details: any = null;
-        let applicantId: string = "";
+      // 데이터 매핑
+      let formattedRequests: ApprovalRequest[] = lines.map(line => {
+        let details = null;
         let type: "leave" | "overtime" = "leave";
 
-        // 1. 휴가 신청서 조회
         if (line.leave_request_id) {
           type = "leave";
-          const { data: leaveData } = await supabase
-            .from("leave_requests")
-            .select("*")
-            .eq("id", line.leave_request_id)
-            .maybeSingle();
-          
-          if (leaveData) {
-            details = leaveData;
-            applicantId = leaveData.user_id;
-          }
-        } 
-        // 2. 초과근무 신청서 조회
-        else if (line.overtime_request_id) {
+          details = leaves.find(l => l.id === line.leave_request_id);
+        } else if (line.overtime_request_id) {
           type = "overtime";
-          const { data: overtimeData } = await supabase
-            .from("overtime_requests")
-            .select("*")
-            .eq("id", line.overtime_request_id)
-            .maybeSingle();
-
-          if (overtimeData) {
-            details = overtimeData;
-            applicantId = overtimeData.user_id;
-          }
+          details = overtimes.find(o => o.id === line.overtime_request_id);
         }
 
-        // 3. 신청자 프로필 조회
-        let applicantName = "알수없음";
-        let applicantRole = "직원";
+        if (!details) return null;
 
-        if (applicantId) {
-          const { data: profile } = await supabase
-            .from("profiles")
-            .select("name, position")
-            .eq("id", applicantId)
-            .maybeSingle();
-          
-          if (profile) {
-            applicantName = profile.name;
-            applicantRole = profile.position || "직원";
-          }
+        const profile = profiles?.find(p => p.id === details.user_id);
+        const applicantName = profile?.name || "알수없음";
+        const applicantRole = profile?.position || "직원";
+
+        const reqDate = new Date(details.created_at).toLocaleDateString();
+        const processedDate = line.updated_at ? new Date(line.updated_at).toLocaleDateString() : undefined;
+        
+        let timeRangeStr = "";
+        let durationDisplay = ""; 
+        let isHolidayWork = false;
+
+        if (type === "leave") {
+           timeRangeStr = details.start_time 
+            ? `${details.start_time.slice(0,5)} ~ ${details.end_time?.slice(0,5)}` 
+            : "종일";
+           
+           const days = details.total_leave_days ?? calculateLeaveDaysFallback(details.start_date, details.end_date, details.leave_type);
+           durationDisplay = `${days}일`;
+        } else {
+           timeRangeStr = `${details.start_time?.slice(0,5)} ~ ${details.end_time?.slice(0,5)}`;
+           const hours = details.total_hours || 0;
+           const days = details.recognized_days || 0; 
+           
+           durationDisplay = `${hours}시간`;
+           if (days > 0) durationDisplay += ` (${days}일 보상)`;
+           isHolidayWork = !!details.is_holiday; 
         }
 
-        // 4. 데이터 포맷팅
-        if (details) {
-          const reqDate = new Date(details.created_at).toLocaleDateString();
-          // ⭐️ [NEW] 처리 일시 포맷팅
-          const processedDate = line.updated_at ? new Date(line.updated_at).toLocaleDateString() : undefined;
-          
-          let timeRangeStr = "";
-          let durationDisplay = ""; 
-          let isHolidayWork = false;
+        return {
+          id: line.id,
+          requestId: details.id,
+          applicant: applicantName,
+          role: applicantRole,
+          type: type,
+          category: type === "leave" ? details.leave_type : "초과근무",
+          date: type === "leave" ? `${details.start_date} ~ ${details.end_date}` : details.work_date,
+          timeRange: timeRangeStr,
+          duration: durationDisplay,
+          hours: type === "overtime" ? Number(details.total_hours || 0) : undefined,
+          reason: details.reason || "-",
+          handover: details.handover_notes || "-",
+          requestDate: reqDate,
+          createdAt: details.created_at,
+          status: line.status,
+          rawData: details,
+          isHoliday: isHolidayWork,
+          requestType: details.request_type || "create",
+          processedAt: processedDate
+        };
+      }).filter(Boolean) as ApprovalRequest[];
 
-          if (type === "leave") {
-             timeRangeStr = details.start_time 
-              ? `${details.start_time.slice(0,5)} ~ ${details.end_time?.slice(0,5)}` 
-              : "종일";
-             
-             const days = details.total_leave_days ?? calculateLeaveDaysFallback(details.start_date, details.end_date, details.leave_type);
-             durationDisplay = `${days}일`;
-
-          } else {
-             // [Overtime]
-             timeRangeStr = `${details.start_time?.slice(0,5)} ~ ${details.end_time?.slice(0,5)}`;
-             
-             const hours = details.total_hours || 0;
-             const days = details.recognized_days || 0; 
-             
-             durationDisplay = `${hours}시간`;
-             if (days > 0) {
-               durationDisplay += ` (${days}일 보상)`;
-             }
-
-             isHolidayWork = !!details.is_holiday; 
-          }
-
-          formattedRequests.push({
-            id: line.id,
-            requestId: details.id,
-            applicant: applicantName,
-            role: applicantRole,
-            type: type,
-            category: type === "leave" ? details.leave_type : "초과근무",
-            date: type === "leave" 
-              ? `${details.start_date} ~ ${details.end_date}` 
-              : details.work_date,
-            timeRange: timeRangeStr,
-            duration: durationDisplay,
-            hours: type === "overtime" ? Number(details.total_hours || 0) : undefined,
-            reason: details.reason || "-",
-            handover: details.handover_notes || "-",
-            requestDate: reqDate,
-            status: line.status,
-            rawData: details,
-            isHoliday: isHolidayWork,
-            requestType: details.request_type || "create",
-            processedAt: processedDate
-          });
-        }
+      // 내 기안함일 경우 최신 신청순으로 정렬
+      if (viewMode === "my_requests") {
+        formattedRequests.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       }
 
       setRequests(formattedRequests);
@@ -204,7 +216,7 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
     } finally {
       setLoading(false);
     }
-  }, [supabase, viewMode]); // ⭐️ viewMode가 변경되면 다시 fetch
+  }, [supabase, viewMode]);
 
   useEffect(() => {
     if (isOpen) {
@@ -223,19 +235,15 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
       });
 
       if (error) {
-        console.error("결재 처리 실패 상세:", JSON.stringify(error, null, 2));
         alert(`처리 실패: ${error.message || "알 수 없는 오류"}`);
         return; 
       }
 
       alert(status === "approved" ? "승인 처리되었습니다." : "반려 처리되었습니다.");
-      
       fetchApprovals();
       if (selectedRequest?.id === item.id) setSelectedRequest(null);
       router.refresh();
-
     } catch (e: any) {
-      console.error("에러 발생:", e);
       alert(`시스템 오류: ${e.message}`);
     }
   };
@@ -243,24 +251,18 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
   const renderRequestTypeBadge = (type: string) => {
     switch (type) {
       case 'update':
-        return (
-          <span className="px-2 py-0.5 rounded text-xs font-bold border flex-shrink-0 bg-orange-50 text-orange-600 border-orange-100 flex items-center gap-1">
-            <FilePenLine className="w-3 h-3" /> 변경
-          </span>
-        );
+        return <span className="px-2 py-0.5 rounded text-xs font-bold border bg-orange-50 text-orange-600 border-orange-100 flex items-center gap-1"><FilePenLine className="w-3 h-3" /> 변경</span>;
       case 'cancel':
-        return (
-          <span className="px-2 py-0.5 rounded text-xs font-bold border flex-shrink-0 bg-red-50 text-red-600 border-red-100 flex items-center gap-1">
-            <FileX2 className="w-3 h-3" /> 취소
-          </span>
-        );
-      default: // create
-        return (
-          <span className="px-2 py-0.5 rounded text-xs font-bold border flex-shrink-0 bg-green-50 text-green-600 border-green-100 flex items-center gap-1">
-            <FileInput className="w-3 h-3" /> 신청
-          </span>
-        );
+        return <span className="px-2 py-0.5 rounded text-xs font-bold border bg-red-50 text-red-600 border-red-100 flex items-center gap-1"><FileX2 className="w-3 h-3" /> 취소</span>;
+      default:
+        return <span className="px-2 py-0.5 rounded text-xs font-bold border bg-green-50 text-green-600 border-green-100 flex items-center gap-1"><FileInput className="w-3 h-3" /> 신청</span>;
     }
+  };
+
+  const getHeaderDescription = () => {
+    if (viewMode === 'pending') return '승인 대기 중인 문서가';
+    if (viewMode === 'history') return '내가 처리한 문서가';
+    return '내가 기안한 문서가';
   };
 
   if (!isOpen) return null;
@@ -283,7 +285,7 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
                 결재 문서함
               </h2>
               <p className="text-xs text-gray-400 mt-1">
-                {viewMode === 'pending' ? '승인 대기 중인 문서가' : '내가 처리한 문서가'} <span className="text-yellow-400 font-bold">{requests.length}건</span> 있습니다.
+                {getHeaderDescription()} <span className="text-yellow-400 font-bold">{requests.length}건</span> 있습니다.
               </p>
             </div>
             <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
@@ -291,12 +293,12 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
             </button>
           </div>
 
-          {/* ⭐️ [NEW] 상위 탭 (대기 / 내역) */}
+          {/* ⭐️ [NEW] 상위 탭 (대기 / 내역 / 내 기안함) */}
           <div className="px-6 pt-4 bg-white border-b border-gray-100">
              <div className="flex p-1 bg-gray-100 rounded-lg w-full md:w-fit mb-4">
                 <button 
                   onClick={() => setViewMode("pending")}
-                  className={`flex-1 md:flex-none px-6 py-1.5 rounded-md text-sm font-bold transition-all ${
+                  className={`flex-1 md:flex-none px-5 py-1.5 rounded-md text-sm font-bold transition-all ${
                     viewMode === "pending" ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
                   }`}
                 >
@@ -304,11 +306,19 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
                 </button>
                 <button 
                   onClick={() => setViewMode("history")}
-                  className={`flex-1 md:flex-none px-6 py-1.5 rounded-md text-sm font-bold transition-all ${
+                  className={`flex-1 md:flex-none px-5 py-1.5 rounded-md text-sm font-bold transition-all ${
                     viewMode === "history" ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
                   }`}
                 >
                   결재 내역
+                </button>
+                <button 
+                  onClick={() => setViewMode("my_requests")}
+                  className={`flex-1 md:flex-none px-5 py-1.5 rounded-md text-sm font-bold transition-all ${
+                    viewMode === "my_requests" ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  내 기안함
                 </button>
              </div>
 
@@ -335,7 +345,7 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
                       key={item.id} 
                       onClick={() => setSelectedRequest(item)}
                       className={`bg-white rounded-xl border shadow-sm p-5 flex flex-col md:flex-row gap-5 transition-all cursor-pointer group relative ${
-                        viewMode === 'history' ? 'border-gray-200 opacity-90 hover:opacity-100' : 'border-gray-200 hover:border-blue-400 hover:shadow-md'
+                        viewMode !== 'pending' ? 'border-gray-200 opacity-90 hover:opacity-100' : 'border-gray-200 hover:border-blue-400 hover:shadow-md'
                       }`}
                     >
                       <div className="absolute top-3 right-3 text-gray-300 group-hover:text-blue-500 transition-colors">
@@ -344,13 +354,13 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
 
                       <div className="flex items-start gap-3 md:w-[180px] md:border-r md:border-gray-100 md:pr-4">
                         <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
-                          viewMode === 'history' ? 'bg-gray-50 text-gray-400' : 'bg-gray-100 text-gray-500'
+                          viewMode !== 'pending' ? 'bg-gray-50 text-gray-400' : 'bg-gray-100 text-gray-500'
                         }`}>
                           <User className="w-5 h-5" />
                         </div>
                         <div>
                           <div className={`font-bold transition-colors ${
-                            viewMode === 'history' ? 'text-gray-600' : 'text-gray-800 group-hover:text-blue-700'
+                            viewMode !== 'pending' ? 'text-gray-600' : 'text-gray-800 group-hover:text-blue-700'
                           }`}>
                             {item.applicant}
                           </div>
@@ -404,24 +414,18 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
                         </div>
                       </div>
 
-                      {/* ⭐️ [MODIFIED] 우측 영역: 대기(버튼) vs 내역(상태뱃지) */}
+                      {/* 우측 영역: 대기(버튼) vs 내역/기안함(상태 뱃지) */}
                       <div className="flex md:flex-col gap-2 justify-center md:border-l md:border-gray-100 md:pl-4 min-w-[100px]">
                         {viewMode === "pending" ? (
                           <>
                             <button 
-                              onClick={(e) => { 
-                                e.stopPropagation(); 
-                                handleProcess(item, "approved"); 
-                              }}
+                              onClick={(e) => { e.stopPropagation(); handleProcess(item, "approved"); }}
                               className="flex-1 flex items-center justify-center gap-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-3 rounded-lg text-sm font-bold transition-colors shadow-sm"
                             >
                               <Check className="w-4 h-4" /> 승인
                             </button>
                             <button 
-                              onClick={(e) => { 
-                                e.stopPropagation(); 
-                                handleProcess(item, "rejected"); 
-                              }}
+                              onClick={(e) => { e.stopPropagation(); handleProcess(item, "rejected"); }}
                               className="flex-1 flex items-center justify-center gap-1 bg-white hover:bg-red-50 text-gray-500 hover:text-red-600 border border-gray-200 hover:border-red-200 py-2 px-3 rounded-lg text-sm font-medium transition-colors"
                             >
                               <XCircle className="w-4 h-4" /> 반려
@@ -432,18 +436,25 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
                             {item.status === "approved" ? (
                               <div className="flex flex-col items-center text-blue-600">
                                 <CheckCircle2 className="w-6 h-6 mb-1" />
-                                <span className="text-xs font-bold">승인함</span>
+                                <span className="text-xs font-bold">승인됨</span>
                               </div>
-                            ) : (
+                            ) : item.status === "rejected" ? (
                               <div className="flex flex-col items-center text-red-500">
                                 <XCircle className="w-6 h-6 mb-1" />
-                                <span className="text-xs font-bold">반려함</span>
+                                <span className="text-xs font-bold">반려됨</span>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col items-center text-gray-500">
+                                <Clock className="w-6 h-6 mb-1" />
+                                <span className="text-xs font-bold">진행중</span>
                               </div>
                             )}
-                            <div className="text-[10px] text-gray-400 flex items-center gap-0.5 mt-1">
-                               <Clock className="w-3 h-3" />
-                               {item.processedAt}
-                            </div>
+                            {item.processedAt && (
+                              <div className="text-[10px] text-gray-400 flex items-center gap-0.5 mt-1">
+                                 <Clock className="w-3 h-3" />
+                                 {item.processedAt}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -452,15 +463,11 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
                 ) : (
                   <div className="flex flex-col items-center justify-center py-20 text-gray-400">
                     {viewMode === 'pending' ? (
-                        <>
-                            <Check className="w-12 h-12 text-gray-300 mb-3" />
-                            <p>처리할 결재 문서가 없습니다.</p>
-                        </>
+                        <><Check className="w-12 h-12 text-gray-300 mb-3" /><p>처리할 결재 문서가 없습니다.</p></>
+                    ) : viewMode === 'history' ? (
+                        <><History className="w-12 h-12 text-gray-300 mb-3" /><p>처리된 결재 내역이 없습니다.</p></>
                     ) : (
-                        <>
-                            <History className="w-12 h-12 text-gray-300 mb-3" />
-                            <p>처리된 결재 내역이 없습니다.</p>
-                        </>
+                        <><Send className="w-12 h-12 text-gray-300 mb-3" /><p>내가 기안한 문서가 없습니다.</p></>
                     )}
                   </div>
                 )}
@@ -471,19 +478,11 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
       </div>
 
       {selectedRequest?.type === 'leave' && (
-        <LeaveApplicationModal 
-          isOpen={!!selectedRequest} 
-          onClose={() => setSelectedRequest(null)} 
-          initialData={selectedRequest.rawData} 
-        />
+        <LeaveApplicationModal isOpen={!!selectedRequest} onClose={() => setSelectedRequest(null)} initialData={selectedRequest.rawData} />
       )}
 
       {selectedRequest?.type === 'overtime' && (
-        <OvertimeApplicationModal 
-          isOpen={!!selectedRequest} 
-          onClose={() => setSelectedRequest(null)} 
-          initialData={selectedRequest.rawData} 
-        />
+        <OvertimeApplicationModal isOpen={!!selectedRequest} onClose={() => setSelectedRequest(null)} initialData={selectedRequest.rawData} />
       )}
     </>
   );
