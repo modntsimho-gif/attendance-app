@@ -89,8 +89,6 @@ export async function getDashboardData() {
     if (error) {
       console.error("🚨 Supabase 쿼리 에러 발생:", error);
     }
-    
-    console.log("✅ 가져온 휴가 데이터 개수:", rawLeaves?.length);
 
     // ⭐️ 데이터 정제
     const validLeaves = filterValidLeaves(rawLeaves || []);
