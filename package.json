@@ -19,7 +19,8 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-naver-maps": "^0.1.5",
-    "tailwind-merge": "^3.4.0"
+    "tailwind-merge": "^3.4.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

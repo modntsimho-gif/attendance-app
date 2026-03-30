@@ -13,6 +13,8 @@ import ApprovalModal from "@/components/ApprovalModal";
 import OvertimeApplicationModal from "@/components/OvertimeApplicationModal"; 
 import TeamListWidget, { Employee } from "@/components/TeamListWidget"; 
 import DashboardWidgets from "@/components/DashboardWidgets";
+// ⭐️ [NEW] 푸시 알림 매니저 컴포넌트 불러오기 (경로는 실제 파일 위치에 맞게 수정해 주세요)
+import PushManager from "@/components/PushManager"; 
 import { 
   PlusCircle, Clock, PieChart, Calendar, History, List, Inbox, ChevronRight, UserCog, 
   Settings, Users, AlertTriangle, LogOut, RotateCcw
@@ -342,6 +344,10 @@ export default function DashboardClient({
             </button>
           </div>
         </div>
+
+        {/* ⭐️ [NEW] 푸시 알림 설정 배너 추가 */}
+        {/* 이미 알림을 허용한 유저에게는 자동으로 숨겨집니다. */}
+        <PushManager />
 
         {/* 상단 통계 (카드 섹션) */}
         <div className="space-y-6">
