@@ -5,7 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 // 관리자 권한 Supabase 클라이언트 (DB 조회를 위해 필요)
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY! // 서비스 롤 키 필요
 );
 
 export async function POST(req: Request) {
