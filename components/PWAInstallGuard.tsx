@@ -45,6 +45,10 @@ export default function PWAInstallGuard({ children }: { children: React.ReactNod
               <span>화면 하단의 <b>공유(⍗)</b> 버튼을 누르고<br/> 메뉴에서 <b>[홈 화면에 추가]</b> 선택</span>
             </li>
             <li className="flex flex-col gap-1">
+              <span className="font-bold text-blue-600">🍎 아이폰 (Chrome)</span>
+              <span>화면 상단 URL창의 오른쪽 끝의 <b>설치(⍐)</b> 아이콘을 누르고<br/> 메뉴에서 <b>[홈 화면에 추가]</b> 선택</span>
+            </li>
+            <li className="flex flex-col gap-1">
               <span className="font-bold text-green-600">🤖 안드로이드 (Chrome)</span>
               <span>화면 우측 상단의 <b>메뉴(⋮)</b> 버튼을 누르고<br/> <b>[홈 화면에 추가]</b> 또는 <b>[앱 설치]</b> 선택</span>
             </li>
