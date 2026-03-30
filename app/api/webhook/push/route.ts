@@ -1,95 +1,79 @@
 import { NextResponse } from "next/server";
-import { sendPushNotification } from "@/utils/push";
 import { createClient } from "@supabase/supabase-js";
-
-// 관리자 권한 Supabase 클라이언트 (DB 조회를 위해 필요)
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY! // 서비스 롤 키 필요
-);
+import { sendPushNotification } from "@/utils/push"; // 👈 경로가 맞는지 확인해 주세요!
 
 export async function POST(req: Request) {
   try {
-    // Supabase 웹훅에서 보낸 데이터(Payload) 받기
     const payload = await req.json();
-    const { type, record, old_record } = payload;
+    const { type, record } = payload;
 
-    // 1️⃣ 새로운 결재가 상신되었을 때 (INSERT)
-    if (type === "INSERT" && record.step_order === 1) {
-      // 1차 결재자에게 알림 전송
+    // approval_lines에 새 결재 라인이 추가(INSERT) 되었을 때
+    if (type === "INSERT" && record.status === "pending") {
+      
+      // 관리자 권한으로 DB 조회를 위한 Supabase 클라이언트 생성
+      const supabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
+      );
+
+      let docTypeName = "";
+      let requesterId = null;
+
+      // ⭐️ 1. 문서 종류 파악 및 기안자(user_id) 조회
+      if (record.leave_request_id) {
+        docTypeName = "연차신청서";
+        const { data } = await supabase
+          .from("leave_requests")
+          .select("user_id")
+          .eq("id", record.leave_request_id)
+          .single();
+        
+        requesterId = data?.user_id;
+        
+      } else if (record.overtime_request_id) {
+        docTypeName = "초과근무신청서";
+        const { data } = await supabase
+          .from("overtime_requests")
+          .select("user_id")
+          .eq("id", record.overtime_request_id)
+          .single();
+        
+        requesterId = data?.user_id;
+      }
+
+      // ⭐️ 2. 기안자 이름(profiles) 조회
+      let requesterName = "직원";
+      if (requesterId) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("name")
+          .eq("id", requesterId)
+          .single();
+          
+        if (profile?.name) {
+          requesterName = profile.name;
+        }
+      }
+
+      // ⭐️ 3. 요청하신 알림 문구 조립
+      const pushTitle = `[결재요청]${docTypeName}`;
+      const pushBody = `${requesterName} 님께서 결재를 요청하셨습니다.결재함을 확인해주세요.`;
+
+      console.log(`🔔 푸시 발송 준비 완료: ${pushTitle} / ${pushBody}`);
+
+      // ⭐️ 4. 푸시 발송
       await sendPushNotification({
         userId: record.approver_id,
-        title: "새로운 결재 요청 📩",
-        body: "새로운 기안이 등록되었습니다. 결재함을 확인해 주세요.",
-        url: "/admin/approvals",
+        title: pushTitle,
+        body: pushBody,
       });
-      return NextResponse.json({ success: true, message: "1차 결재자 알림 전송 완료" });
+
+      return NextResponse.json({ success: true });
     }
 
-    // 2️⃣ 누군가 결재를 승인했을 때 (UPDATE)
-    if (type === "UPDATE" && old_record?.status === "pending" && record.status === "approved") {
-      
-      // 다음 순번(step_order)의 결재자가 있는지 DB에서 찾기
-      const { data: nextApprover } = await supabaseAdmin
-        .from("approval_lines")
-        .select("approver_id")
-        .eq("leave_request_id", record.leave_request_id)
-        .eq("step_order", record.step_order + 1)
-        .maybeSingle();
-
-      if (nextApprover) {
-        // 👉 다음 결재자가 있다면 그 사람에게 알림
-        await sendPushNotification({
-          userId: nextApprover.approver_id,
-          title: "결재 요청 도착 📩",
-          body: "앞선 결재자가 승인했습니다. 다음 결재를 진행해 주세요.",
-          url: "/admin/approvals",
-        });
-        return NextResponse.json({ success: true, message: "다음 결재자 알림 전송 완료" });
-        
-      } else {
-        // 👉 다음 결재자가 없다면? (최종 승인 완료) -> 기안자 본인에게 알림
-        // 기안자 ID를 찾기 위해 leave_requests 테이블 조회
-        const { data: leaveRequest } = await supabaseAdmin
-          .from("leave_requests")
-          .select("user_id")
-          .eq("id", record.leave_request_id)
-          .single();
-
-        if (leaveRequest) {
-          await sendPushNotification({
-            userId: leaveRequest.user_id,
-            title: "결재 최종 승인 완료 🎉",
-            body: "신청하신 연차가 최종 승인되었습니다!",
-            url: "/",
-          });
-        }
-        return NextResponse.json({ success: true, message: "최종 승인 알림 전송 완료" });
-      }
-    }
-
-    // 반려(rejected) 처리 등 다른 상태 변화도 여기서 추가 가능합니다.
-    if (type === "UPDATE" && record.status === "rejected") {
-        const { data: leaveRequest } = await supabaseAdmin
-          .from("leave_requests")
-          .select("user_id")
-          .eq("id", record.leave_request_id)
-          .single();
-
-        if (leaveRequest) {
-          await sendPushNotification({
-            userId: leaveRequest.user_id,
-            title: "결재 반려 ❌",
-            body: "신청하신 기안이 반려되었습니다. 사유를 확인해 주세요.",
-            url: "/",
-          });
-        }
-    }
-
-    return NextResponse.json({ success: true, message: "처리할 이벤트가 아님" });
-
+    return NextResponse.json({ message: "푸시 발송 조건 아님" });
   } catch (error) {
-    console.error("웹훅 처리 중 에러:", error);
+    console.error("웹훅 에러:", error);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }
