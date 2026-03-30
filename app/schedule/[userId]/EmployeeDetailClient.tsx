@@ -83,11 +83,27 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
     }
 
     // 3. 사용 연차 계산 (승인된 건만 합산)
-    // 주의: 취소된 건은 제외, 'approved' 상태인 것만 계산
-    const usedAnnualLeave = leavesInYear
-      .filter(l => l.status === 'approved' && (l.leave_type === '연차' || l.leave_type === 'annual')) // ⭕️ 한글/영문 모두 계산
+    // A. 먼저 휴가 신청 내역에서 '연차', '반차', '반반차' 사용량을 모두 합산합니다.
+    let usedAnnualLeave = leavesInYear
+      .filter(l => 
+        l.status === 'approved' && 
+        (
+          l.leave_type === '연차' || 
+          l.leave_type === 'annual' || 
+          l.leave_type === '반차' || 
+          l.leave_type === '반반차'
+        )
+      )
       .reduce((sum, l) => sum + Number(l.total_leave_days), 0);
 
+    // B. ⭐️ 만약 올해를 조회 중이라면, profiles 테이블의 used_leave_days 값을 우선 반영합니다.
+    // (서민해 님처럼 DB 프로필에 0.25가 직접 기록된 경우를 처리)
+    if (selectedYear === currentYear) {
+      const profileUsed = Number(profile.used_leave_days || 0);
+      if (profileUsed > usedAnnualLeave) {
+        usedAnnualLeave = profileUsed;
+      }
+    }
     return {
       filteredLeaves: leavesInYear,
       filteredOvertimes: overtimesInYear,
@@ -296,7 +312,7 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                                     {new Date(item.created_at).toLocaleDateString()} 신청
                                   </div>
                                   <div className={`font-bold ${item.request_type === 'cancel' ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
-                                    -{Number(item.total_leave_days).toFixed(1)}일
+                                    -{Number(item.total_leave_days).toFixed(2)}일
                                   </div>
                                 </div>
                               </div>

@@ -37,11 +37,17 @@ export default function ScheduleClient({
         totalAnnual = emp.total_leave_days || 0;
       }
       
-      // B. 사용 연차: 해당 연도에 시작하는 '연차' 타입 휴가 합계
+      // B. 사용 연차: 해당 연도에 시작하는 연차 관련 휴가 합계
       const usedAnnual = leaves
         .filter(l => 
           l.user_id === emp.id && 
-          (l.leave_type === '연차' || l.leave_type === 'annual') && // ⭕️ 한글/영문 모두 대응
+          // ⭐️ '연차', '반차', '반반차' 등 연차에서 차감되는 모든 타입을 포함시킵니다.
+          (
+            l.leave_type === '연차' || 
+            l.leave_type === 'annual' || 
+            l.leave_type === '반차' || 
+            l.leave_type === '반반차'
+          ) && 
           l.start_date?.startsWith(yearStr)
         )
         .reduce((sum, l) => sum + Number(l.total_leave_days), 0);
