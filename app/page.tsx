@@ -35,12 +35,43 @@ export default async function DashboardPage() {
     .eq("user_id", user.id)
     .eq("status", "pending");
 
-  // 4. [관리자] 내가 결재해야 할 문서 건수 (pending 상태)
-  const { count: pendingApprovalCount } = await supabase
+  // 4. [관리자] 내가 결재해야 할 문서 건수 (pending 상태) - ⭐️ 내 차례인 것만 카운트
+  const { data: myPendingLines } = await supabase
     .from("approval_lines")
-    .select("*", { count: "exact", head: true })
+    .select("*")
     .eq("approver_id", user.id)
     .eq("status", "pending");
+
+  let realPendingCount = 0;
+
+  if (myPendingLines && myPendingLines.length > 0) {
+    const leaveIds = myPendingLines.map(l => l.leave_request_id).filter(Boolean);
+    const overtimeIds = myPendingLines.map(l => l.overtime_request_id).filter(Boolean);
+
+    // 관련된 모든 결재선 데이터 가져오기
+    const [leaveLinesRes, overtimeLinesRes] = await Promise.all([
+      leaveIds.length > 0 ? supabase.from("approval_lines").select("*").in("leave_request_id", leaveIds) : Promise.resolve({ data: [] }),
+      overtimeIds.length > 0 ? supabase.from("approval_lines").select("*").in("overtime_request_id", overtimeIds) : Promise.resolve({ data: [] })
+    ]);
+
+    const allLines = [...(leaveLinesRes.data || []), ...(overtimeLinesRes.data || [])];
+
+    // 내 차례인 문서만 카운트
+    myPendingLines.forEach(myLine => {
+      const reqId = myLine.leave_request_id || myLine.overtime_request_id;
+      
+      // 해당 문서의 결재선을 step_order 순으로 정렬
+      const linesForThisReq = allLines
+        .filter(l => l.leave_request_id === reqId || l.overtime_request_id === reqId)
+        .sort((a, b) => a.step_order - b.step_order);
+        
+      // 첫 번째 대기자가 '나'인지 확인
+      const currentPending = linesForThisReq.find(l => l.status === "pending");
+      if (currentPending && currentPending.approver_id === user.id) {
+        realPendingCount++;
+      }
+    });
+  }
 
   // ⭐️ [NEW] 5. 전체 직원 리스트 조회 (위젯용)
   // role이 'employee'인 직원들만 가져옵니다. (필요시 .eq 부분 제거하면 관리자도 포함됨)
@@ -71,7 +102,7 @@ export default async function DashboardPage() {
       overtimeRequestCount={overtimeRequestCount || 0}
 
       // 결재 대기 건수 (관리자용)
-      pendingApprovalCount={pendingApprovalCount || 0}
+      pendingApprovalCount={realPendingCount}
 
       // ⭐️ [NEW] 직원 리스트 전달
       employees={employees || []}

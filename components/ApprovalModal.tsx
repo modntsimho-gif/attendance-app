@@ -95,6 +95,7 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
 
       } 
       // 기존 로직: 결재 수신함 (대기/내역)
+      // 기존 로직: 결재 수신함 (대기/내역)
       else {
         let query = supabase
           .from("approval_lines")
@@ -108,14 +109,53 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
           query = query.in("status", ["approved", "rejected"]);
         }
 
-        const { data: fetchedLines, error: lineError } = await query;
+        const { data: myLines, error: lineError } = await query;
 
-        if (lineError || !fetchedLines || fetchedLines.length === 0) {
+        if (lineError || !myLines || myLines.length === 0) {
           setRequests([]);
           setLoading(false);
           return;
         }
-        lines = fetchedLines;
+
+        // ⭐️ [NEW] 대기함(pending)일 경우: "내 차례"가 맞는지 검증하기 위한 추가 로직
+        let validLines = myLines;
+        
+        if (viewMode === "pending") {
+          const leaveIds = myLines.map(l => l.leave_request_id).filter(Boolean);
+          const overtimeIds = myLines.map(l => l.overtime_request_id).filter(Boolean);
+
+          // 관련된 모든 결재선 데이터를 가져옵니다.
+          const [allLeaveLines, allOvertimeLines] = await Promise.all([
+            leaveIds.length > 0 ? supabase.from("approval_lines").select("*").in("leave_request_id", leaveIds) : Promise.resolve({ data: [] }),
+            overtimeIds.length > 0 ? supabase.from("approval_lines").select("*").in("overtime_request_id", overtimeIds) : Promise.resolve({ data: [] })
+          ]);
+
+          const allLines = [...(allLeaveLines.data || []), ...(allOvertimeLines.data || [])];
+
+          // 내 차례인지 필터링
+          validLines = myLines.filter(myLine => {
+            const reqId = myLine.leave_request_id || myLine.overtime_request_id;
+            
+            // 이 문서에 딸린 모든 결재선을 가져와서 순서(step_order)대로 정렬합니다. ⭕️
+            const linesForThisReq = allLines
+              .filter(l => (l.leave_request_id === reqId || l.overtime_request_id === reqId))
+              .sort((a, b) => a.step_order - b.step_order); 
+
+            // 정렬된 결재선 중에서 '대기(pending)' 상태인 가장 첫 번째 결재자를 찾습니다.
+            const currentPendingLine = linesForThisReq.find(l => l.status === "pending");
+
+            // 그 첫 번째 대기자가 '나'일 때만 목록에 보여줍니다.
+            return currentPendingLine && currentPendingLine.approver_id === user.id;
+          });
+        }
+
+        if (validLines.length === 0) {
+          setRequests([]);
+          setLoading(false);
+          return;
+        }
+
+        lines = validLines; // 검증된 결재선만 덮어씌움
 
         const leaveIds = lines.map(l => l.leave_request_id).filter(Boolean);
         const overtimeIds = lines.map(l => l.overtime_request_id).filter(Boolean);
