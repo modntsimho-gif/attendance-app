@@ -34,6 +34,7 @@ export default function PushManager() {
 
       // 2. 푸시 구독 생성 (여기에 아까 .env에 넣은 공개키가 사용됩니다)
       const publicVapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!;
+      console.log("현재 구워진 VAPID 키:", publicVapidKey); // 👈 이 줄을 추가
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(publicVapidKey),
