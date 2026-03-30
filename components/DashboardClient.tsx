@@ -15,7 +15,7 @@ import TeamListWidget, { Employee } from "@/components/TeamListWidget";
 import DashboardWidgets from "@/components/DashboardWidgets";
 import { 
   PlusCircle, Clock, PieChart, Calendar, History, List, Inbox, ChevronRight, UserCog, 
-  Settings, Users, AlertTriangle, LogOut, RotateCcw, MapPin
+  Settings, Users, AlertTriangle, LogOut, RotateCcw
 } from "lucide-react";
 
 interface DashboardClientProps {
@@ -38,6 +38,16 @@ const getLocalToday = () => {
   const month = String(now.getMonth() + 1).padStart(2, '0');
   const day = String(now.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+};
+
+// 📱 [NEW] 접속 기기 판별 함수
+const detectDevice = () => {
+  if (typeof window === 'undefined') return 'pc';
+  const userAgent = navigator.userAgent.toLowerCase();
+  if (/android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent)) {
+    return 'mobile';
+  }
+  return 'pc';
 };
 
 export default function DashboardClient({ 
@@ -66,7 +76,7 @@ export default function DashboardClient({
   const [clockOutTime, setClockOutTime] = useState<string | null>(null);
   
   const [autoCheckoutDate, setAutoCheckoutDate] = useState<string | null>(null);
-  const [locationLoading, setLocationLoading] = useState(false); // 📍 위치 로딩 상태 추가
+  const [isProcessing, setIsProcessing] = useState(false); // 버튼 중복 클릭 방지용 상태
 
   const currentYear = new Date().getFullYear();
 
@@ -172,40 +182,13 @@ export default function DashboardClient({
     }
   };
 
-  // 📍 [추가] 현재 위치 가져오는 함수
-  const getCurrentLocation = (): Promise<{lat: number, lng: number} | null> => {
-    return new Promise((resolve) => {
-      if (!navigator.geolocation) {
-        console.error("Geolocation is not supported by this browser.");
-        resolve(null);
-        return;
-      }
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          resolve({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude
-          });
-        },
-        (error) => {
-          console.warn("위치 정보를 가져올 수 없습니다:", error.message);
-          resolve(null); // 위치 실패해도 출근은 가능하게 null 반환
-        },
-        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
-      );
-    });
-  };
-
-  // ✅ [수정] 출근 처리 (위치 정보 포함)
   const handleClockIn = async () => {
     try {
+      setIsProcessing(true);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return alert("로그인 정보가 없습니다.");
 
-      setLocationLoading(true); // 로딩 시작
-      const location = await getCurrentLocation(); // 위치 가져오기
-      setLocationLoading(false); // 로딩 끝
-
+      const currentDevice = detectDevice(); 
       const now = new Date();
       const today = getLocalToday();
 
@@ -215,33 +198,29 @@ export default function DashboardClient({
           user_id: user.id, 
           date: today, 
           clock_in: now.toISOString(),
-          // 👇 위치 정보 저장 (컬럼이 존재해야 함)
-          start_lat: location?.lat || null,
-          start_lng: location?.lng || null
+          in_device: currentDevice 
         }]);
 
       if (error) throw error;
 
       setClockInTime(now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }));
       setAttendanceStatus('checked_in');
-      alert(`출근 처리가 완료되었습니다.${location ? ' (위치 저장됨)' : ''}`);
+      alert(`출근 처리가 완료되었습니다. (${currentDevice === 'mobile' ? '모바일' : 'PC'} 접속)`);
     } catch (error) {
-      setLocationLoading(false);
       console.error("출근 기록 실패:", error);
       alert("출근 처리에 실패했습니다. 다시 시도해주세요.");
+    } finally {
+      setIsProcessing(false);
     }
   };
 
-  // ✅ [수정] 퇴근 처리 (위치 정보 포함)
   const handleClockOut = async () => {
     try {
+      setIsProcessing(true);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return alert("로그인 정보가 없습니다.");
 
-      setLocationLoading(true); // 로딩 시작
-      const location = await getCurrentLocation(); // 위치 가져오기
-      setLocationLoading(false); // 로딩 끝
-
+      const currentDevice = detectDevice(); 
       const now = new Date();
       const today = getLocalToday();
 
@@ -249,9 +228,7 @@ export default function DashboardClient({
         .from('attendance')
         .update({ 
           clock_out: now.toISOString(),
-          // 👇 위치 정보 저장
-          end_lat: location?.lat || null,
-          end_lng: location?.lng || null
+          out_device: currentDevice 
         })
         .eq('user_id', user.id)
         .eq('date', today);
@@ -260,11 +237,12 @@ export default function DashboardClient({
 
       setClockOutTime(now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }));
       setAttendanceStatus('checked_out');
-      alert(`퇴근 처리가 완료되었습니다. 고생하셨습니다!${location ? ' (위치 저장됨)' : ''}`);
+      alert(`퇴근 처리가 완료되었습니다. 고생하셨습니다!`);
     } catch (error) {
-      setLocationLoading(false);
       console.error("퇴근 기록 실패:", error);
       alert("퇴근 처리에 실패했습니다. 다시 시도해주세요.");
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -272,6 +250,7 @@ export default function DashboardClient({
     if (!confirm("퇴근 처리를 취소하시겠습니까? 다시 근무 중 상태로 변경됩니다.")) return;
 
     try {
+      setIsProcessing(true);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return alert("로그인 정보가 없습니다.");
 
@@ -281,8 +260,7 @@ export default function DashboardClient({
         .from('attendance')
         .update({ 
             clock_out: null,
-            end_lat: null, // 취소 시 퇴근 위치도 초기화
-            end_lng: null 
+            out_device: null 
         }) 
         .eq('user_id', user.id)
         .eq('date', today);
@@ -295,6 +273,8 @@ export default function DashboardClient({
     } catch (error) {
       console.error("퇴근 취소 실패:", error);
       alert("퇴근 취소 처리에 실패했습니다. 다시 시도해주세요.");
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -469,13 +449,18 @@ export default function DashboardClient({
         {/* 하단 레이아웃 */}
         <div className="flex flex-col lg:grid lg:grid-cols-5 gap-6">
           <div className="lg:col-span-4 flex flex-col h-full gap-6 order-2 lg:order-1">
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 relative">
-              <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+            
+            {/* ⭐️ 캘린더 영역: 높이를 대폭 늘리고 내부를 꽉 채우도록 수정했습니다! */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 relative flex flex-col min-h-[1000px] lg:min-h-[1200px]">
+              <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2 shrink-0">
                 <Clock className="w-5 h-5 text-blue-500" />
                 {selectedTeamMember ? `${selectedTeamMember.name}님의 일정 조회` : '근태 캘린더'}
               </h2>
-              <CalendarView targetUser={selectedTeamMember} />
+              <div className="flex-1 w-full h-full relative">
+                <CalendarView targetUser={selectedTeamMember} />
+              </div>
             </div>
+            
             <DashboardWidgets />
           </div>
 
@@ -488,13 +473,6 @@ export default function DashboardClient({
                   <Clock className="w-4 h-4 text-blue-500" />
                   오늘의 출퇴근
                 </h3>
-                {/* <Link 
-                  href="/location-setup"
-                  className="hidden text-xs md:flex items-center gap-1 text-gray-500 hover:text-blue-600 bg-white border border-gray-200 px-2 py-1 rounded-md shadow-sm transition-colors"
-                >
-                  <MapPin className="w-3 h-3" />
-                  위치 설정
-                </Link> */}
               </div>
               <div className="p-4 space-y-4">
                 <div className="space-y-2">
@@ -516,19 +494,20 @@ export default function DashboardClient({
                 <div className="grid grid-cols-2 gap-2 pt-2">
                   <button 
                     onClick={handleClockIn}
-                    disabled={attendanceStatus !== 'none' || locationLoading}
+                    disabled={attendanceStatus !== 'none' || isProcessing}
                     className={`py-2.5 rounded-lg font-bold text-sm transition-all ${
                       attendanceStatus === 'none' 
                         ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-md' 
                         : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                     }`}
                   >
-                    {locationLoading && attendanceStatus === 'none' ? '위치 확인중...' : '출근하기'}
+                    {isProcessing && attendanceStatus === 'none' ? '처리중...' : '출근하기'}
                   </button>
                   
                   {attendanceStatus === 'checked_out' ? (
                     <button 
                       onClick={handleClockOutCancel}
+                      disabled={isProcessing}
                       className="py-2.5 rounded-lg font-bold text-sm transition-all bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 shadow-sm flex items-center justify-center gap-1"
                     >
                       <RotateCcw className="w-3.5 h-3.5" />
@@ -537,14 +516,14 @@ export default function DashboardClient({
                   ) : (
                     <button 
                       onClick={handleClockOut}
-                      disabled={attendanceStatus !== 'checked_in' || locationLoading}
+                      disabled={attendanceStatus !== 'checked_in' || isProcessing}
                       className={`py-2.5 rounded-lg font-bold text-sm transition-all ${
                         attendanceStatus === 'checked_in' 
                           ? 'bg-gray-800 hover:bg-gray-900 text-white shadow-md' 
                           : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                       }`}
                     >
-                       {locationLoading && attendanceStatus === 'checked_in' ? '위치 확인중...' : '퇴근하기'}
+                       {isProcessing && attendanceStatus === 'checked_in' ? '처리중...' : '퇴근하기'}
                     </button>
                   )}
                 </div>

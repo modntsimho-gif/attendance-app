@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image"; 
 import { login, signup, resetPassword } from "./actions"; 
-import { Loader2, User, Lock, Mail, Building, IdCard, ChevronDown, Calendar, ShieldCheck, ArrowLeft } from "lucide-react"; 
+import { Loader2, User, Lock, Mail, Building, IdCard, ChevronDown, Calendar, ShieldCheck, ArrowLeft, CheckSquare } from "lucide-react"; 
 
 const DEPARTMENTS = ["CEO", "대외협력팀", "소원사업팀", "경영지원팀"];
 const POSITIONS = ["간사", "대리", "과장", "차장" ,"팀장", "사무총장"];
@@ -20,6 +20,19 @@ export default function LoginPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  // ⭐️ [NEW] 이메일 입력값과 아이디 저장 상태 관리
+  const [email, setEmail] = useState("");
+  const [saveId, setSaveId] = useState(false);
+
+  // ⭐️ [NEW] 컴포넌트 마운트 시 로컬스토리지에서 저장된 이메일 불러오기
+  useEffect(() => {
+    const savedEmail = localStorage.getItem("savedEmail");
+    if (savedEmail) {
+      setEmail(savedEmail);
+      setSaveId(true);
+    }
+  }, []);
+
   const handleSubmit = async (formData: FormData) => {
     setLoading(true);
     setMessage(null);
@@ -27,11 +40,17 @@ export default function LoginPage() {
 
     try {
       if (view === "login") {
+        // ⭐️ [NEW] 로그인 시 '이메일 저장' 체크 여부에 따라 로컬스토리지 업데이트
+        if (saveId) {
+          localStorage.setItem("savedEmail", formData.get("email") as string);
+        } else {
+          localStorage.removeItem("savedEmail");
+        }
+        
         const error = await login(formData);
         if (error) setMessage(error);
       } else if (view === "signup") {
         const error = await signup(formData);
-        // 에러가 없으면 서버 액션에서 redirect("/") 하므로 여기 코드는 실행되지 않음
         if (error) setMessage(error);
       } else if (view === "reset") {
         const result = await resetPassword(formData);
@@ -42,7 +61,6 @@ export default function LoginPage() {
         }
       }
     } catch (e) {
-      // redirect()가 발생하면 에러처럼 잡히는 경우가 있어서 예외 처리
       const errStr = String(e);
       if (errStr.includes("NEXT_REDIRECT")) return; 
       setMessage("오류가 발생했습니다.");
@@ -58,7 +76,6 @@ export default function LoginPage() {
         {/* 헤더 */}
         <div className="bg-white p-8 pb-6 text-center border-b border-gray-100">
           <div className="flex justify-center mb-4">
-            {/* 로고 이미지가 없다면 텍스트로 대체되거나 빈 박스가 보일 수 있음 */}
             <div className="relative w-48 h-16 flex items-center justify-center">
                <Image src="/logo.png" alt="Make-A-Wish Korea" fill className="object-contain" priority />
             </div>
@@ -108,6 +125,8 @@ export default function LoginPage() {
                   name="email"
                   type="email"
                   required
+                  value={email} // ⭐️ [NEW] 상태값 연결
+                  onChange={(e) => setEmail(e.target.value)} // ⭐️ [NEW] 입력값 업데이트
                   placeholder="user@makeawish.or.kr"
                   className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all placeholder:text-gray-400"
                 />
@@ -139,6 +158,22 @@ export default function LoginPage() {
                     className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all placeholder:text-gray-400"
                   />
                 </div>
+              </div>
+            )}
+
+            {/* ⭐️ [NEW] 이메일 저장 체크박스 (로그인 화면에서만 표시) */}
+            {view === "login" && (
+              <div className="flex items-center gap-2 mt-2 ml-1">
+                <input
+                  type="checkbox"
+                  id="saveId"
+                  checked={saveId}
+                  onChange={(e) => setSaveId(e.target.checked)}
+                  className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2 cursor-pointer"
+                />
+                <label htmlFor="saveId" className="text-xs font-bold text-gray-600 cursor-pointer select-none flex items-center gap-1">
+                  이메일 저장
+                </label>
               </div>
             )}
 

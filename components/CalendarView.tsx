@@ -1,11 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link"; // ✅ [NEW] 페이지 이동을 위한 Link 임포트
 import { 
   format, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, 
   isSameMonth, isToday, isSameDay, isSaturday, isSunday, isWithinInterval, parseISO 
 } from "date-fns";
-import { UserCircle, Loader2, ChevronLeft, ChevronRight, Calendar as CalendarIcon } from "lucide-react";
+import { 
+  UserCircle, Loader2, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Settings 
+} from "lucide-react"; // ✅ [NEW] Settings 아이콘 추가
 import { getCalendarEvents } from "@/app/actions/calendar"; 
 
 interface CalendarViewProps {
@@ -25,6 +28,7 @@ type LeaveEvent = {
   start_date: string;
   end_date: string;
   status: string;
+  color?: string; // ✅ [NEW] 서버에서 넘겨주는 색상 속성 추가
 };
 
 type OvertimeEvent = {
@@ -35,7 +39,6 @@ type OvertimeEvent = {
   status: string;
 };
 
-// [NEW] 공휴일 타입 정의
 type HolidayEvent = {
   id: number;
   date: string;
@@ -47,7 +50,7 @@ export default function CalendarView({ targetUser }: CalendarViewProps) {
   
   const [leaves, setLeaves] = useState<LeaveEvent[]>([]);
   const [overtimes, setOvertimes] = useState<OvertimeEvent[]>([]);
-  const [holidays, setHolidays] = useState<HolidayEvent[]>([]); // [NEW] 상태 추가
+  const [holidays, setHolidays] = useState<HolidayEvent[]>([]); 
   
   const [loading, setLoading] = useState(false);
 
@@ -60,7 +63,7 @@ export default function CalendarView({ targetUser }: CalendarViewProps) {
         const data = await getCalendarEvents(targetUser?.id, currentDate);
         setLeaves(data.leaves);
         setOvertimes(data.overtimes);
-        setHolidays(data.holidays); // [NEW] 데이터 저장
+        setHolidays(data.holidays); 
       } catch (error) {
         console.error("일정 불러오기 실패:", error);
       } finally {
@@ -77,7 +80,7 @@ export default function CalendarView({ targetUser }: CalendarViewProps) {
   const calendarDays = eachDayOfInterval({ start: startDate, end: endDate });
 
   return (
-    <div className="flex flex-col w-full bg-white rounded-xl shadow-lg border-t-4 border-t-blue-600 border-x border-b border-gray-200 overflow-hidden relative min-h-[600px]">
+    <div className="flex flex-col w-full bg-white rounded-xl shadow-lg border-t-4 border-t-blue-600 border-x border-b border-gray-200 overflow-hidden relative min-h-[1200px]">
       
       {loading && (
         <div className="absolute inset-0 bg-white/60 z-30 flex items-center justify-center backdrop-blur-[1px]">
@@ -114,25 +117,37 @@ export default function CalendarView({ targetUser }: CalendarViewProps) {
           </h2>
         </div>
         
-        <div className="flex items-center bg-gray-100 rounded-lg p-1 gap-1">
-          <button 
-            onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() - 1)))}
-            className="w-9 h-9 flex items-center justify-center hover:bg-white hover:shadow-sm rounded-md transition-all text-gray-600"
+        {/* ✅ [NEW] 우측 컨트롤 영역 (월 이동 + 설정 버튼) */}
+        <div className="flex items-center gap-3">
+
+          {/* ⭐️ 톱니바퀴 대신 텍스트 버튼으로 변경 */}
+          <Link 
+            href="/calendar" 
+            className="px-4 h-10 flex items-center justify-center bg-white hover:bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold text-gray-700 transition-all shadow-sm"
           >
-            <ChevronLeft className="w-5 h-5" />
-          </button>
-          <button 
-            onClick={() => setCurrentDate(new Date())}
-            className="px-4 h-9 flex items-center justify-center hover:bg-white hover:shadow-sm rounded-md transition-all text-sm font-bold text-gray-700"
-          >
-            오늘
-          </button>
-          <button 
-            onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() + 1)))}
-            className="w-9 h-9 flex items-center justify-center hover:bg-white hover:shadow-sm rounded-md transition-all text-gray-600"
-          >
-            <ChevronRight className="w-5 h-5" />
-          </button>
+            사용자 색상설정
+          </Link>
+
+          <div className="flex items-center bg-gray-100 rounded-lg p-1 gap-1">
+            <button 
+              onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() - 1)))}
+              className="w-9 h-9 flex items-center justify-center hover:bg-white hover:shadow-sm rounded-md transition-all text-gray-600"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <button 
+              onClick={() => setCurrentDate(new Date())}
+              className="px-4 h-9 flex items-center justify-center hover:bg-white hover:shadow-sm rounded-md transition-all text-sm font-bold text-gray-700"
+            >
+              오늘
+            </button>
+            <button 
+              onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() + 1)))}
+              className="w-9 h-9 flex items-center justify-center hover:bg-white hover:shadow-sm rounded-md transition-all text-gray-600"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -149,13 +164,11 @@ export default function CalendarView({ targetUser }: CalendarViewProps) {
           const isCurrentMonth = isSameMonth(day, monthStart);
           const today = isToday(day);
           
-          // [NEW] 공휴일 체크
           const holiday = holidays.find(h => h.date === format(day, "yyyy-MM-dd"));
           const isHoliday = !!holiday;
 
-          // 날짜 색상 결정 (공휴일 or 일요일 = 빨강, 토요일 = 파랑)
           const isRedDay = isSunday(day) || isHoliday;
-          const isBlueDay = isSaturday(day) && !isHoliday; // 공휴일이면 토요일이어도 빨강
+          const isBlueDay = isSaturday(day) && !isHoliday; 
 
           const dayLeaves = leaves.filter(leave => 
             isWithinInterval(day, {
@@ -178,7 +191,6 @@ export default function CalendarView({ targetUser }: CalendarViewProps) {
               `}
             >
               <div className="w-full flex justify-between items-start mb-1">
-                {/* 날짜 숫자 */}
                 <span className={`
                   text-lg font-bold w-8 h-8 flex items-center justify-center rounded-full
                   ${!isCurrentMonth ? 'text-gray-300' : ''}
@@ -190,7 +202,6 @@ export default function CalendarView({ targetUser }: CalendarViewProps) {
                   {format(day, 'd')}
                 </span>
 
-                {/* [NEW] 공휴일 이름 표시 */}
                 {holiday && isCurrentMonth && (
                   <span className="text-[10px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded border border-red-100 truncate max-w-[60px]">
                     {holiday.title}
@@ -198,18 +209,21 @@ export default function CalendarView({ targetUser }: CalendarViewProps) {
                 )}
               </div>
 
-              {/* 일정 리스트 */}
               <div className="w-full space-y-1 overflow-y-auto max-h-[100px] custom-scrollbar mt-1">
                 
+                {/* ✅ [NEW] 서버에서 받아온 color 속성을 배경색으로 적용 */}
                 {dayLeaves.map((leave) => (
                   <div 
                     key={leave.id}
+                    style={{ 
+                      backgroundColor: leave.color ? `${leave.color}33` : undefined, // 33은 투명도 20%
+                      color: leave.color ? '#1F2937' : undefined, // 글씨는 진한 회색
+                      borderColor: leave.color ? leave.color : undefined
+                    }}
                     className={`
                       px-2 py-1 rounded-md text-xs font-bold shadow-sm border truncate flex items-center gap-1
-                      ${leave.status === 'approved' 
-                        ? 'bg-blue-100 text-blue-700 border-blue-200' 
-                        : 'bg-orange-50 text-orange-600 border-orange-200 border-dashed'
-                      }
+                      ${!leave.color && leave.status === 'approved' ? 'bg-blue-100 text-blue-700 border-blue-200' : ''}
+                      ${!leave.color && leave.status !== 'approved' ? 'bg-orange-50 text-orange-600 border-orange-200 border-dashed' : ''}
                       ${!isMyCalendar ? 'opacity-90 grayscale-[0.3]' : ''}
                     `}
                   >

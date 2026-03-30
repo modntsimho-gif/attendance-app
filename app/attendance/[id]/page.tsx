@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { createClient } from "@/utils/supabase/client";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Calendar, User } from "lucide-react";
+import { ArrowLeft, Calendar, User, Smartphone, Monitor } from "lucide-react";
 
 interface EmployeeProfile {
   name: string;
@@ -16,7 +16,26 @@ interface AttendanceRecord {
   date: string;
   clock_in: string | null;
   clock_out: string | null;
-  status: '근무중' | '퇴근완료' | '자동마감'; // ⭐️ 상태 타입 추가
+  status: '근무중' | '퇴근완료' | '자동마감';
+  in_device?: string | null;  // ⭐️ 출근 기기 추가
+  out_device?: string | null; // ⭐️ 퇴근 기기 추가
+}
+
+// 📱 [NEW] 기기 아이콘 렌더링 컴포넌트 추가
+function DeviceBadge({ device }: { device?: string | null }) {
+  if (!device) return <span className="text-gray-300 text-xs">-</span>;
+  
+  const isMobile = device.toLowerCase().includes('mobile');
+  
+  return isMobile ? (
+    <div className="flex items-center gap-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-100 px-2 py-1 rounded-md w-fit">
+      <Smartphone className="w-3.5 h-3.5" /> 모바일
+    </div>
+  ) : (
+    <div className="flex items-center gap-1.5 text-xs font-medium text-purple-700 bg-purple-50 border border-purple-100 px-2 py-1 rounded-md w-fit">
+      <Monitor className="w-3.5 h-3.5" /> PC
+    </div>
+  );
 }
 
 export default function EmployeeAttendanceDetail() {
@@ -92,10 +111,10 @@ export default function EmployeeAttendanceDetail() {
         const startDate = `${selectedYear}-01-01`;
         const endDate = `${selectedYear}-12-31`;
 
-        // ⭐️ [수정] is_auto_checkout 컬럼 추가 조회
+        // ⭐️ [수정] in_device, out_device 컬럼 추가 조회
         const { data: attendanceData, error: attendanceError } = await supabase
           .from('attendance')
-          .select('date, clock_in, clock_out, is_auto_checkout')
+          .select('date, clock_in, clock_out, is_auto_checkout, in_device, out_device')
           .eq('user_id', userId)
           .gte('date', startDate)
           .lte('date', endDate)
@@ -104,7 +123,6 @@ export default function EmployeeAttendanceDetail() {
         if (attendanceError) throw attendanceError;
 
         const formattedRecords: AttendanceRecord[] = (attendanceData || []).map(record => {
-          // ⭐️ [수정] 자동마감 로직 적용
           let status: '근무중' | '퇴근완료' | '자동마감' = '근무중';
           if (record.clock_in && record.clock_out) {
             status = record.is_auto_checkout ? '자동마감' : '퇴근완료';
@@ -114,7 +132,9 @@ export default function EmployeeAttendanceDetail() {
             date: record.date,
             clock_in: record.clock_in ? new Date(record.clock_in).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '-',
             clock_out: record.clock_out ? new Date(record.clock_out).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '-',
-            status
+            status,
+            in_device: record.in_device,   // ⭐️ 출근 기기 매핑
+            out_device: record.out_device  // ⭐️ 퇴근 기기 매핑
           };
         });
 
@@ -169,32 +189,39 @@ export default function EmployeeAttendanceDetail() {
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="overflow-x-auto max-h-[70vh] overflow-y-auto">
-            <table className="w-full text-left border-collapse">
+          <table className="w-full text-left border-collapse min-w-[800px]">
               <thead className="sticky top-0 bg-gray-50 shadow-sm z-10">
                 <tr className="border-b border-gray-100 text-sm text-gray-500">
-                  <th className="p-4 font-semibold">날짜</th>
-                  <th className="p-4 font-semibold">출근 시간</th>
-                  <th className="p-4 font-semibold">퇴근 시간</th>
-                  <th className="p-4 font-semibold text-center">상태</th>
+                  <th className="p-4 font-semibold w-[120px]">날짜</th>
+                  <th className="p-4 font-semibold w-[120px]">출근 시간</th>
+                  <th className="p-4 font-semibold w-[120px]">출근 기기</th>
+                  <th className="p-4 font-semibold w-[120px]">퇴근 시간</th>
+                  <th className="p-4 font-semibold w-[120px]">퇴근 기기</th>
+                  <th className="p-4 font-semibold text-center w-[100px]">상태</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {isLoading ? (
                   <tr>
-                    <td colSpan={4} className="p-10 text-center text-gray-400">데이터를 불러오는 중입니다...</td>
+                    <td colSpan={6} className="p-10 text-center text-gray-400">데이터를 불러오는 중입니다...</td>
                   </tr>
                 ) : records.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="p-10 text-center text-gray-400 bg-gray-50/50">해당 연도에 기록된 출퇴근 내역이 없습니다.</td>
+                    <td colSpan={6} className="p-10 text-center text-gray-400 bg-gray-50/50">해당 연도에 기록된 출퇴근 내역이 없습니다.</td>
                   </tr>
                 ) : (
                   records.map((record, index) => (
                     <tr key={index} className="hover:bg-gray-50/50 transition-colors">
                       <td className="p-4 font-medium text-gray-800">{record.date}</td>
                       <td className="p-4 text-sm font-medium text-blue-600">{record.clock_in}</td>
+                      <td className="p-4">
+                        {record.clock_in !== '-' ? <DeviceBadge device={record.in_device} /> : null}
+                      </td>
                       <td className="p-4 text-sm font-medium text-red-500">{record.clock_out}</td>
+                      <td className="p-4">
+                        {record.clock_out !== '-' ? <DeviceBadge device={record.out_device} /> : null}
+                      </td>
                       <td className="p-4 text-center">
-                        {/* ⭐️ [수정] 자동마감 뱃지 스타일 추가 */}
                         <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${
                           record.status === '근무중' ? 'bg-green-100 text-green-700' : 
                           record.status === '자동마감' ? 'bg-orange-100 text-orange-700 border border-orange-200' :
