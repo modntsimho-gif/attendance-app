@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import AutoLogoutProvider from "@/components/AutoLogoutProvider";
+import PWAInstallGuard from "@/components/PWAInstallGuard"; // 👈 1. 가드 컴포넌트 불러오기
 import Script from "next/script";
 
 const geistSans = Geist({
@@ -19,8 +20,8 @@ export const metadata: Metadata = {
   title: "[MAW]Management System",
   description: "[MAW]Management System",
   icons: {
-    icon: "/logo.png", // 👈 public 폴더에 넣은 로고 파일의 이름으로 변경해 주세요! (.ico, .png, .svg 모두 가능)
-    apple: "/logo.png", // (선택) 아이폰 바탕화면 추가용 아이콘
+    icon: "/logo.png", 
+    apple: "/logo.png", 
   },
 };
 
@@ -41,7 +42,10 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <AutoLogoutProvider>
-          {children}
+          {/* 👈 2. 앱 전체를 가드로 감싸주기 */}
+          <PWAInstallGuard>
+            {children}
+          </PWAInstallGuard>
         </AutoLogoutProvider>
       </body>
     </html>
