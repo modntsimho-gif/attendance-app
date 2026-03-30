@@ -11,7 +11,7 @@ webpush.setVapidDetails(
 // 관리자 권한으로 DB를 조회하기 위한 Supabase Admin 클라이언트
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY! // 서비스 롤 키 필요
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY! // 서비스 롤 키 필요
 );
 
 interface SendPushParams {
