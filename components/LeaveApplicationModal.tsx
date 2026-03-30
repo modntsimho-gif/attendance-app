@@ -341,19 +341,44 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
         
-        // 1. 유저의 모든 초과근무 내역을 가져옵니다.
-        const { data } = await supabase
+        // 1. 유저의 모든 초과근무 내역 가져오기
+        const { data: otData } = await supabase
           .from("overtime_requests")
           .select("*")
           .eq("user_id", user.id)
           .order("created_at", { ascending: false });
           
-        if (data) {
-          // 2. 연차와 동일하게 원본 ID를 기준으로 그룹화합니다.
+        // ⭐️ 2. [NEW] 현재 '결재 대기 중(pending)'인 휴가 신청서들 가져오기
+        const { data: pendingLeaves } = await supabase
+          .from("leave_requests")
+          .select("overtime_request_ids, overtime_request_id")
+          .eq("user_id", user.id)
+          .eq("status", "pending");
+
+        // ⭐️ 3. [NEW] 대기 중인 신청서에서 사용 중인 초과근무 ID 추출 (잠금 처리)
+        const lockedOtIds = new Set<string>();
+        if (pendingLeaves) {
+          pendingLeaves.forEach(leave => {
+            const rawIds = leave.overtime_request_ids || leave.overtime_request_id;
+            if (rawIds) {
+              try {
+                // 배열 형태면 파싱해서 모두 추가
+                const ids = typeof rawIds === 'string' && rawIds.startsWith('[') 
+                  ? JSON.parse(rawIds) 
+                  : [rawIds];
+                ids.forEach((id: string) => lockedOtIds.add(id));
+              } catch(e) {
+                lockedOtIds.add(rawIds as string);
+              }
+            }
+          });
+        }
+
+        if (otData) {
           const itemMap = new Map<string, any>();
           const parentMap = new Map<string, string>();
 
-          data.forEach((item: any) => {
+          otData.forEach((item: any) => {
             itemMap.set(item.id, item);
             if (item.original_overtime_request_id) {
               parentMap.set(item.id, item.original_overtime_request_id);
@@ -370,7 +395,7 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
           };
 
           const groups: Record<string, any[]> = {};
-          data.forEach((item: any) => {
+          otData.forEach((item: any) => {
             const rootId = findRootId(item.id);
             if (!groups[rootId]) groups[rootId] = [];
             groups[rootId].push(item);
@@ -378,22 +403,19 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
 
           const validOvertimes: OvertimeRecord[] = [];
 
-          // 3. 각 그룹의 최신 상태를 확인하여 유효한 것만 필터링합니다.
           Object.values(groups).forEach((group) => {
-            // 최신순 정렬
             group.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
             const latest = group[0]; 
 
-            // ⭐️ 핵심: 최신 상태가 '승인'이고, '취소' 신청이 아닌 경우만 포함
+            // ⭐️ 4. [수정] 승인됨 + 취소아님 + "결재 대기 중인 내역에 포함되지 않음(!lockedOtIds.has)"
             if (latest.status === 'approved' && latest.request_type !== 'cancel') {
               const remaining = (latest.recognized_hours || 0) - (latest.used_hours || 0);
-              if (remaining > 0) {
+              if (remaining > 0 && !lockedOtIds.has(latest.id)) {
                 validOvertimes.push(latest);
               }
             }
           });
 
-          // 4. 근무일 최신순으로 정렬하여 보여주기
           validOvertimes.sort((a, b) => new Date(b.work_date).getTime() - new Date(a.work_date).getTime());
           
           setOvertimeList(validOvertimes);
@@ -915,6 +937,12 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                                     checked={isSelected}
                                     onChange={(e) => {
                                       if (e.target.checked) {
+                                        // 🚨 [NEW] 이미 필요한 시간을 다 채웠는지 검사
+                                        if (totalSelectedRemaining >= currentReqHours) {
+                                          alert(`이미 필요한 시간(${currentReqHours}시간)을 모두 채웠습니다. 더 이상 선택할 필요가 없습니다.`);
+                                          e.preventDefault();
+                                          return;
+                                        }
                                         setSelectedOvertimeIds(prev => [...prev, ot.id]);
                                       } else {
                                         setSelectedOvertimeIds(prev => prev.filter(id => id !== ot.id));
