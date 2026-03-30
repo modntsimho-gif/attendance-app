@@ -13,7 +13,7 @@ export async function POST(req: Request) {
       // 관리자 권한으로 DB 조회를 위한 Supabase 클라이언트 생성
       const supabase = createClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
       );
 
       let docTypeName = "";
