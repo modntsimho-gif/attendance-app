@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "[MAW]근테 관리",
-  description: "[MAW]근테 관리",
+  title: "[MAW]근태 관리",
+  description: "[MAW]근태 관리",
 };
 
 export default function RootLayout({
