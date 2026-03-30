@@ -38,10 +38,11 @@ export default function ScheduleClient({
       }
       
       // B. 사용 연차: 해당 연도에 시작하는 연차 관련 휴가 합계
-      const usedAnnual = leaves
+      let usedAnnual = leaves
         .filter(l => 
           l.user_id === emp.id && 
-          // ⭐️ '연차', '반차', '반반차' 등 연차에서 차감되는 모든 타입을 포함시킵니다.
+          l.status === 'approved' && // ⭐️ 1. 승인된 내역만 합산
+          l.request_type !== 'cancel' && // ⭐️ 2. 취소 신청서는 제외
           (
             l.leave_type === '연차' || 
             l.leave_type === 'annual' || 
@@ -52,17 +53,35 @@ export default function ScheduleClient({
         )
         .reduce((sum, l) => sum + Number(l.total_leave_days), 0);
 
+      // ⭐️ 3. 프로필 테이블의 직접 입력된 사용 연차 반영 (아까 지워진 부분 복구)
+      if (selectedYear === currentYear) {
+        const profileUsed = Number(emp.used_leave_days || 0);
+        if (profileUsed > usedAnnual) {
+          usedAnnual = profileUsed;
+        }
+      }
+
       // --- 2. 보상 휴가 계산 ---
       // A. 총 발생: 해당 연도 초과근무 시간 합계 / 8 (8시간 = 1일)
       const generatedOvertimeHours = overtimes
-        .filter(o => o.user_id === emp.id && o.work_date?.startsWith(yearStr))
+        .filter(o => 
+          o.user_id === emp.id && 
+          o.status === 'approved' && // ⭐️ 승인된 내역만
+          o.request_type !== 'cancel' && // ⭐️ 취소 신청서는 제외
+          o.work_date?.startsWith(yearStr)
+        )
         .reduce((sum, o) => sum + Number(o.recognized_hours || 0), 0);
       
       const totalExtra = generatedOvertimeHours / 8; 
 
       // B. 사용: 초과근무 테이블의 'used_hours' 합계 / 8 (8시간 = 1일)
       const usedExtra = overtimes
-        .filter(o => o.user_id === emp.id && o.work_date?.startsWith(yearStr))
+        .filter(o => 
+          o.user_id === emp.id && 
+          o.status === 'approved' && // ⭐️ 승인된 내역만
+          o.request_type !== 'cancel' && // ⭐️ 취소 신청서는 제외
+          o.work_date?.startsWith(yearStr)
+        )
         .reduce((sum, o) => sum + Number(o.used_hours || 0), 0) / 8;
 
       // 계산 결과 리턴
