@@ -188,8 +188,10 @@ export default function EmployeeAttendanceDetail() {
         </div>
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="overflow-x-auto max-h-[70vh] overflow-y-auto">
-          <table className="w-full text-left border-collapse min-w-[800px]">
+          
+          {/* 🖥️ [PC 뷰] 화면이 넓을 때(md 이상)만 보이는 테이블 형태 */}
+          <div className="hidden md:block overflow-x-auto max-h-[70vh] overflow-y-auto custom-scrollbar">
+            <table className="w-full text-left border-collapse min-w-[800px]">
               <thead className="sticky top-0 bg-gray-50 shadow-sm z-10">
                 <tr className="border-b border-gray-100 text-sm text-gray-500">
                   <th className="p-4 font-semibold w-[120px]">날짜</th>
@@ -236,6 +238,59 @@ export default function EmployeeAttendanceDetail() {
               </tbody>
             </table>
           </div>
+
+          {/* 📱 [모바일 뷰] 화면이 좁을 때(md 미만)만 보이는 카드 형태 */}
+          <div className="block md:hidden divide-y divide-gray-100 max-h-[70vh] overflow-y-auto custom-scrollbar">
+            {isLoading ? (
+              <div className="p-10 text-center text-gray-400 text-sm">데이터를 불러오는 중입니다...</div>
+            ) : records.length === 0 ? (
+              <div className="p-10 text-center text-gray-400 text-sm bg-gray-50/50">해당 연도에 기록된 출퇴근 내역이 없습니다.</div>
+            ) : (
+              records.map((record, index) => (
+                <div key={index} className="p-4 hover:bg-gray-50/50 transition-colors flex flex-col gap-3">
+                  
+                  {/* 상단: 날짜 및 상태 배지 */}
+                  <div className="flex items-center justify-between">
+                    <div className="font-bold text-gray-800 text-base flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-gray-400" />
+                      {record.date}
+                    </div>
+                    <span className={`shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${
+                      record.status === '근무중' ? 'bg-green-100 text-green-700' : 
+                      record.status === '자동마감' ? 'bg-orange-100 text-orange-700 border border-orange-200' :
+                      'bg-gray-100 text-gray-600'
+                    }`}>
+                      {record.status}
+                    </span>
+                  </div>
+
+                  {/* 하단: 출퇴근 시간 및 기기 정보 박스 */}
+                  <div className="bg-gray-50 rounded-lg p-3 grid grid-cols-2 gap-3">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs text-gray-500 font-medium">출근</span>
+                      <div className="font-bold text-blue-600 text-sm">{record.clock_in}</div>
+                      {record.clock_in !== '-' && (
+                        <div className="mt-0.5">
+                          <DeviceBadge device={record.in_device} />
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex flex-col gap-1 border-l border-gray-200 pl-3">
+                      <span className="text-xs text-gray-500 font-medium">퇴근</span>
+                      <div className="font-bold text-red-500 text-sm">{record.clock_out}</div>
+                      {record.clock_out !== '-' && (
+                        <div className="mt-0.5">
+                          <DeviceBadge device={record.out_device} />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  
+                </div>
+              ))
+            )}
+          </div>
+
         </div>
 
       </div>

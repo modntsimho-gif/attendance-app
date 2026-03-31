@@ -481,16 +481,16 @@ export default function DashboardClient({
         <div className="flex flex-col lg:grid lg:grid-cols-5 gap-6">
           <div className="lg:col-span-4 flex flex-col h-full gap-6 order-2 lg:order-1">
             
-            {/* ⭐️ 캘린더 영역: 높이를 대폭 늘리고 내부를 꽉 채우도록 수정했습니다! */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 relative flex flex-col min-h-[1000px] lg:min-h-[1200px]">
-              <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2 shrink-0">
-                <Clock className="w-5 h-5 text-blue-500" />
-                {selectedTeamMember ? `${selectedTeamMember.name}님의 일정 조회` : '근태 캘린더'}
-              </h2>
-              <div className="flex-1 w-full h-full relative">
-                <CalendarView targetUser={selectedTeamMember} />
-              </div>
+          {/* ⭐️ 캘린더 영역: 모바일에서는 숨기고(hidden), PC에서만 보이게(lg:flex) 처리 */}
+          <div className="hidden lg:flex bg-white p-6 rounded-xl shadow-sm border border-gray-100 relative flex-col min-h-[1200px]">
+            <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2 shrink-0">
+              <Clock className="w-5 h-5 text-blue-500" />
+              {selectedTeamMember ? `${selectedTeamMember.name}님의 일정 조회` : '근태 캘린더'}
+            </h2>
+            <div className="flex-1 w-full h-full relative">
+              <CalendarView targetUser={selectedTeamMember} />
             </div>
+          </div>
             
             <DashboardWidgets />
           </div>
