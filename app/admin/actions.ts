@@ -143,11 +143,10 @@ export async function deleteHoliday(id: string) {
   return { success: true };
 }
 
-// ⭐️ [이 부분이 없어서 에러가 났습니다. 꼭 포함되어야 합니다!]
+// 9. 전직원 연차 사용일 초기화
 export async function resetAllUsedLeaveDays() {
   const supabase = await createClient();
 
-  // 1. 관리자 권한 확인
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "로그인이 필요합니다." };
 
@@ -159,10 +158,13 @@ export async function resetAllUsedLeaveDays() {
 
   if (adminProfile?.role !== 'manager') return { error: "관리자 권한이 없습니다." };
 
-  // 2. 전체 프로필 업데이트 (더미 ID 제외하고 모두)
+  // ⭐️ 총 연차와 사용 연차 모두 0으로 초기화
   const { error } = await supabase
     .from("profiles")
-    .update({ used_leave_days: 0 })
+    .update({ 
+      total_leave_days: 0,
+      used_leave_days: 0 
+    })
     .neq("id", "00000000-0000-0000-0000-000000000000");
 
   if (error) {
@@ -170,9 +172,58 @@ export async function resetAllUsedLeaveDays() {
     return { error: error.message };
   }
 
-  // 3. 데이터 갱신
   revalidatePath("/admin");
   revalidatePath("/schedule");
   
   return { success: true };
+}
+
+// 10. 엑셀 일괄 업로드 (연차 할당 + 올해 연차 프로필 동기화)
+export async function bulkUpsertAllocations(
+  allocations: { user_id: string; year: number; total_days: number }[]
+) {
+  const supabase = await createClient();
+
+  // 1. 관리자 권한 확인
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: "로그인이 필요합니다." };
+
+  const { data: adminProfile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+
+  if (adminProfile?.role !== 'manager') return { success: false, error: "관리자 권한이 없습니다." };
+
+  try {
+    // 2. annual_leave_allocations 테이블에 일괄 덮어쓰기
+    const { error: upsertError } = await supabase
+      .from("annual_leave_allocations")
+      .upsert(allocations, { onConflict: "user_id, year" });
+
+    if (upsertError) throw upsertError;
+
+    // 3. 현재 연도(올해) 데이터만 필터링하여 profiles 테이블 업데이트
+    const currentYear = new Date().getFullYear();
+    const currentYearAllocations = allocations.filter(a => a.year === currentYear);
+
+    if (currentYearAllocations.length > 0) {
+      await Promise.all(
+        currentYearAllocations.map(alloc => 
+          supabase
+            .from("profiles")
+            .update({ total_leave_days: alloc.total_days })
+            .eq("id", alloc.user_id)
+        )
+      );
+    }
+
+    // 4. 데이터 갱신
+    revalidatePath("/admin");
+    return { success: true };
+  } catch (error: any) {
+    console.error("엑셀 일괄 업로드 에러:", error);
+    return { success: false, error: error.message };
+  }
 }

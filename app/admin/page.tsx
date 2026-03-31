@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-// ⭐️ [수정됨] 모든 액션을 "./actions"에서 한 번에 가져옵니다.
+import { useEffect, useState, useRef } from "react";
+// ⭐️ [수정됨] bulkUpsertAllocations 추가
 import { 
   getEmployees, 
   updateEmployee, 
@@ -11,17 +11,20 @@ import {
   getEmployeeAllocations, 
   saveEmployeeAllocation, 
   deleteEmployeeAllocation,
-  resetAllUsedLeaveDays // 👈 여기에 추가했습니다.
+  resetAllUsedLeaveDays,
+  bulkUpsertAllocations 
 } from "./actions";
+
 
 import { 
   Loader2, Save, X, Edit, UserCheck, Search, 
   ArrowLeft, CalendarDays, Trash2, Plus, Settings2, UserMinus,
-  RotateCcw, AlertTriangle 
+  RotateCcw, AlertTriangle, Download, Upload
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
+import * as XLSX from "xlsx"; // ⭐️ 엑셀 라이브러리 임포트
 
 const DEPARTMENTS = ["CEO", "대외협력팀", "소원사업팀", "경영지원팀"];
 const POSITIONS = ["간사", "대리", "과장", "차장", "팀장", "사무총장"];
@@ -71,8 +74,11 @@ export default function AdminPage() {
 
   const [newHoliday, setNewHoliday] = useState({ date: "", title: "" });
 
-  // ⭐️ 초기화 로딩 상태
   const [isResetting, setIsResetting] = useState(false);
+  
+  // ⭐️ 엑셀 업로드를 위한 상태 및 Ref
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isExcelProcessing, setIsExcelProcessing] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -94,7 +100,99 @@ export default function AdminPage() {
     }
   };
 
-  // ⭐️ 연차 초기화 핸들러
+  // ==========================================
+  // 🟢 엑셀 다운로드 로직
+  // ==========================================
+  const handleDownloadExcel = () => {
+    const targetYear = prompt("다운로드할 기준 연도를 입력하세요 (예: 2024)", new Date().getFullYear().toString());
+    if (!targetYear) return;
+
+    const yearNum = parseInt(targetYear);
+
+    // 엑셀에 들어갈 데이터 매핑
+    const excelData = employees
+      .filter(emp => !emp.resigned_at) // 퇴사자 제외
+      .map(emp => {
+        const alloc = emp.annual_leave_allocations?.find(a => a.year === yearNum);
+        return {
+          "직원ID(수정금지)": emp.id,
+          "이름": emp.name,
+          "부서": emp.department || "-",
+          "직급": emp.position || "-",
+          "연도": yearNum,
+          "발생연차(수정가능)": alloc ? alloc.total_days : 0
+        };
+      });
+
+    // 워크시트 생성 및 다운로드
+    const worksheet = XLSX.utils.json_to_sheet(excelData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "연차부여내역");
+    
+    // 열 너비 자동 조절
+    worksheet["!cols"] = [{ wch: 40 }, { wch: 10 }, { wch: 15 }, { wch: 10 }, { wch: 10 }, { wch: 20 }];
+
+    XLSX.writeFile(workbook, `연차부여내역_${yearNum}년.xlsx`);
+  };
+
+  // ==========================================
+  // 🟢 엑셀 업로드 로직
+  // ==========================================
+  const handleUploadExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsExcelProcessing(true);
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const workbook = XLSX.read(bstr, { type: "binary" });
+        const worksheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[worksheetName];
+        
+        // 엑셀 데이터를 JSON 배열로 변환
+        const data = XLSX.utils.sheet_to_json(worksheet) as any[];
+
+        // DB에 넣을 형태로 데이터 가공
+        const payload = data
+          .filter(row => row["직원ID(수정금지)"] && row["연도"] && row["발생연차(수정가능)"] !== undefined)
+          .map(row => ({
+            user_id: row["직원ID(수정금지)"],
+            year: parseInt(row["연도"]),
+            total_days: parseFloat(row["발생연차(수정가능)"])
+          }));
+
+        if (payload.length === 0) {
+          alert("업로드할 유효한 데이터가 없습니다. 양식을 확인해주세요.");
+          return;
+        }
+
+        const confirmMsg = `총 ${payload.length}건의 연차 정보를 업데이트 하시겠습니까?`;
+        if (!confirm(confirmMsg)) return;
+
+        // 서버 액션 호출
+        const res = await bulkUpsertAllocations(payload);
+        
+        if (res.success) {
+          alert("✅ 엑셀 업로드가 완료되었습니다.");
+          loadData(); // 데이터 새로고침
+        } else {
+          alert("업로드 실패: " + res.error);
+        }
+      } catch (error) {
+        console.error(error);
+        alert("엑셀 파일을 읽는 중 오류가 발생했습니다.");
+      } finally {
+        setIsExcelProcessing(false);
+        if (fileInputRef.current) fileInputRef.current.value = ""; // input 초기화
+      }
+    };
+    
+    reader.readAsBinaryString(file);
+  };
+
   const handleResetAllLeaves = async () => {
     const confirmed = confirm(
       "⚠️ [주의] 모든 직원의 '연차 사용일(used_leave_days)'을 0으로 초기화하시겠습니까?\n\n" +
@@ -111,7 +209,7 @@ export default function AdminPage() {
         alert("실패: " + res.error);
       } else {
         alert("✅ 모든 직원의 연차 사용일이 0으로 초기화되었습니다.");
-        loadData(); // 데이터 새로고침
+        loadData();
       }
     } catch (e) {
       console.error(e);
@@ -247,32 +345,57 @@ export default function AdminPage() {
         {/* 직원 관리 탭 */}
         {activeTab === "employees" && (
           <>
-            {/* ⭐️ 검색창 및 초기화 버튼 영역 */}
-            <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+            {/* ⭐️ 상단 액션 바 (엑셀 버튼, 초기화 버튼, 검색창) */}
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
               
-              {/* ⭐️ 연차 초기화 버튼 */}
-              <button
-                onClick={handleResetAllLeaves}
-                disabled={isResetting}
-                className="flex items-center gap-2 px-4 py-2 bg-white border border-red-200 text-red-600 rounded-lg text-sm font-bold hover:bg-red-50 hover:border-red-300 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isResetting ? (
-                  <RotateCcw className="w-4 h-4 animate-spin" />
-                ) : (
-                  <AlertTriangle className="w-4 h-4" />
-                )}
-                {isResetting ? "초기화 중..." : "전직원 연차 사용일 초기화 (새해용)"}
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                {/* 엑셀 다운로드 버튼 */}
+                <button
+                  onClick={handleDownloadExcel}
+                  className="flex items-center gap-2 px-4 py-2 bg-green-50 border border-green-200 text-green-700 rounded-lg text-sm font-bold hover:bg-green-100 transition-all shadow-sm"
+                >
+                  <Download className="w-4 h-4" /> 연차 양식 다운로드
+                </button>
+
+                {/* 엑셀 업로드 버튼 (숨겨진 input과 연결) */}
+                <input 
+                  type="file" 
+                  accept=".xlsx, .xls" 
+                  ref={fileInputRef} 
+                  onChange={handleUploadExcel} 
+                  className="hidden" 
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isExcelProcessing}
+                  className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-all shadow-sm disabled:opacity-50"
+                >
+                  {isExcelProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                  {isExcelProcessing ? "업로드 중..." : "엑셀 일괄 업로드"}
+                </button>
+
+                <div className="w-px h-6 bg-gray-300 mx-2 hidden md:block"></div>
+
+                {/* 연차 초기화 버튼 */}
+                <button
+                  onClick={handleResetAllLeaves}
+                  disabled={isResetting}
+                  className="flex items-center gap-2 px-4 py-2 bg-white border border-red-200 text-red-600 rounded-lg text-sm font-bold hover:bg-red-50 hover:border-red-300 transition-all shadow-sm disabled:opacity-50"
+                >
+                  {isResetting ? <RotateCcw className="w-4 h-4 animate-spin" /> : <AlertTriangle className="w-4 h-4" />}
+                  사용일 초기화 (새해용)
+                </button>
+              </div>
 
               {/* 검색창 */}
-              <div className="relative w-64">
+              <div className="relative w-full lg:w-64 shrink-0">
                 <Search className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
                 <input 
                   type="text" 
                   placeholder="이름 또는 부서 검색..." 
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border rounded-lg text-sm bg-white shadow-sm"
+                  className="w-full pl-10 pr-4 py-2 border rounded-lg text-sm bg-white text-gray-900 shadow-sm"
                 />
               </div>
             </div>
@@ -352,11 +475,11 @@ export default function AdminPage() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1">날짜</label>
-                  <input type="date" value={newHoliday.date} onChange={(e) => setNewHoliday({...newHoliday, date: e.target.value})} className="w-full border rounded-lg p-2 text-sm" />
+                  <input type="date" value={newHoliday.date} onChange={(e) => setNewHoliday({...newHoliday, date: e.target.value})} className="w-full border rounded-lg p-2 text-sm text-gray-900 bg-white" />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1">공휴일 명칭</label>
-                  <input type="text" placeholder="예: 창립기념일" value={newHoliday.title} onChange={(e) => setNewHoliday({...newHoliday, title: e.target.value})} className="w-full border rounded-lg p-2 text-sm" />
+                  <input type="text" placeholder="예: 창립기념일" value={newHoliday.title} onChange={(e) => setNewHoliday({...newHoliday, title: e.target.value})} className="w-full border rounded-lg p-2 text-sm text-gray-900 bg-white" />
                 </div>
                 <button onClick={handleAddHoliday} className="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2 rounded-lg text-sm flex items-center justify-center gap-2 transition-colors">
                   <Plus className="w-4 h-4" /> 추가하기
@@ -423,25 +546,25 @@ export default function AdminPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1">이름</label>
-                  <input name="name" value={editingUser.name} onChange={handleChange} className="w-full border rounded-lg p-2 bg-gray-50" />
+                  <input name="name" value={editingUser.name} onChange={handleChange} className="w-full border rounded-lg p-2 bg-gray-50 text-gray-900" />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1">부서</label>
-                  <select name="department" value={editingUser.department || ""} onChange={handleChange} className="w-full border rounded-lg p-2">
+                  <select name="department" value={editingUser.department || ""} onChange={handleChange} className="w-full border rounded-lg p-2 text-gray-900 bg-white">
                     <option value="">선택하세요</option>
                     {DEPARTMENTS.map(dept => <option key={dept} value={dept}>{dept}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1">직급</label>
-                  <select name="position" value={editingUser.position || ""} onChange={handleChange} className="w-full border rounded-lg p-2">
+                  <select name="position" value={editingUser.position || ""} onChange={handleChange} className="w-full border rounded-lg p-2 text-gray-900 bg-white">
                     <option value="">선택하세요</option>
                     {POSITIONS.map(pos => <option key={pos} value={pos}>{pos}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1">권한</label>
-                  <select name="role" value={editingUser.role} onChange={handleChange} className="w-full border rounded-lg p-2">
+                  <select name="role" value={editingUser.role} onChange={handleChange} className="w-full border rounded-lg p-2 text-gray-900 bg-white">
                     <option value="employee">직원</option>
                     <option value="manager">관리자</option>
                   </select>
@@ -463,7 +586,7 @@ export default function AdminPage() {
                       placeholder="연도 (예: 2025)"
                       value={newAllocation.year}
                       onChange={(e) => setNewAllocation({...newAllocation, year: parseInt(e.target.value)})}
-                      className="w-full border border-blue-200 rounded-lg p-2 text-sm"
+                      className="w-full border border-blue-200 rounded-lg p-2 text-sm text-gray-900 bg-white"
                     />
                   </div>
                   <div className="flex-1">
@@ -472,7 +595,7 @@ export default function AdminPage() {
                       placeholder="총 연차 (일)"
                       value={newAllocation.days}
                       onChange={(e) => setNewAllocation({...newAllocation, days: parseFloat(e.target.value)})}
-                      className="w-full border border-blue-200 rounded-lg p-2 text-sm"
+                      className="w-full border border-blue-200 rounded-lg p-2 text-sm text-gray-900 bg-white"
                     />
                   </div>
                   <button 
@@ -531,7 +654,7 @@ export default function AdminPage() {
                       name="resigned_at"
                       value={editingUser.resigned_at || ""}
                       onChange={handleChange}
-                      className="w-full border border-red-200 rounded-lg p-2 text-sm focus:ring-red-500"
+                      className="w-full border border-red-200 rounded-lg p-2 text-sm focus:ring-red-500 text-gray-900 bg-white"
                     />
                     <p className="text-[10px] text-red-500 mt-1">
                       * 퇴사일을 입력하고 저장하면 퇴사 처리됩니다. (복구하려면 날짜를 지우세요)
