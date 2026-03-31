@@ -61,13 +61,15 @@ export default function EmployeeAttendanceDetail() {
           .select('date')
           .eq('user_id', userId)
           .order('date', { ascending: false })
-          .limit(1)
-          .single();
+          .limit(1); // ⭐️ .single() 제거!
+
+        if (error) throw error;
 
         let maxYear = currentYear; 
 
-        if (data && data.date) {
-          const dataYear = new Date(data.date).getFullYear();
+        // ⭐️ 데이터가 배열로 오기 때문에 data[0]이 존재하는지 체크합니다.
+        if (data && data.length > 0 && data[0].date) {
+          const dataYear = new Date(data[0].date).getFullYear();
           if (dataYear > maxYear) {
             maxYear = dataYear;
           }
@@ -82,6 +84,7 @@ export default function EmployeeAttendanceDetail() {
         
         setYears(generatedYears);
       } catch (error) {
+        // 진짜 통신 오류일 때만 로그를 찍습니다.
         console.error("연도 범위 조회 실패:", error);
         const fallbackYears = Array.from(
           { length: currentYear - 2026 + 1 }, 
