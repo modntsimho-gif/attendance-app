@@ -3,7 +3,7 @@
 import { createClient } from "@/utils/supabase/server";
 import { startOfMonth, endOfMonth, startOfWeek, endOfWeek, format, parseISO } from "date-fns";
 
-// ⭐️ 기본 색상 제공 함수 (사용자가 커스텀 색상을 지정하지 않았을 때 사용)
+// ⭐️ 기본 색상 제공 함수
 const EVENT_COLORS = [
   "#FCA5A5", "#FDBA74", "#FCD34D", "#86EFAC", "#67E8F9", 
   "#93C5FD", "#C4B5FD", "#F9A8D4", "#F87171", "#60A5FA"
@@ -85,10 +85,10 @@ export async function getCalendarEvents(
   const startDateStr = format(viewStart, "yyyy-MM-dd");
   const endDateStr = format(viewEnd, "yyyy-MM-dd");
 
-  // 2. 휴가 전체 조회
+  // ⭐️ 2. 휴가 전체 조회 (정렬을 위해 position 정보 추가)
   let leavesQuery = supabase
     .from("leave_requests")
-    .select("*, profiles(name)");
+    .select("*, profiles(name, position)");
     
   if (userId) {
     leavesQuery = leavesQuery.eq("user_id", userId);
@@ -102,13 +102,12 @@ export async function getCalendarEvents(
     .gte("date", startDateStr)
     .lte("date", endDateStr);
 
-  // ⭐️ 4. [NEW] 현재 로그인한 사용자가 설정한 '커스텀 색상' 목록 조회
+  // 4. 커스텀 색상 목록 조회
   const { data: colorPrefs } = await supabase
     .from("user_color_preferences")
     .select("target_user_id, color")
     .eq("user_id", currentUser.id);
 
-  // 빠른 검색을 위해 Map 객체로 변환 (예: { '동료ID': '#FF0000' })
   const customColorMap = new Map();
   if (colorPrefs) {
     colorPrefs.forEach(pref => {
@@ -116,7 +115,23 @@ export async function getCalendarEvents(
     });
   }
 
-  // 5. 최신 상태 필터링 및 날짜 범위 필터링
+  // ⭐️ 5. [NEW] 직급 및 직원 정렬 기준(sort_settings) 통합 조회
+  const { data: sortData } = await supabase
+    .from("sort_settings")
+    .select("target_type, target_id, sort_order")
+    .in("target_type", ["position", "employee"]);
+
+  const pSortMap = new Map<string, number>(); // 직급 정렬
+  const eSortMap = new Map<string, number>(); // 직원 정렬
+
+  if (sortData) {
+    sortData.forEach(s => {
+      if (s.target_type === 'position') pSortMap.set(s.target_id, s.sort_order);
+      if (s.target_type === 'employee') eSortMap.set(s.target_id, s.sort_order);
+    });
+  }
+
+  // 6. 최신 상태 필터링 및 날짜 범위 필터링
   const latestLeaves = filterLatestEvents(allLeaves || []);
   const finalLeaves = latestLeaves.filter(leave => {
     const leaveStart = parseISO(leave.start_date);
@@ -124,23 +139,39 @@ export async function getCalendarEvents(
     return (leaveStart <= viewEnd) && (leaveEnd >= viewStart);
   });
 
-  // ⭐️ 6. 데이터 가공 (이름 + 커스텀 색상 적용)
+  // 7. 데이터 가공
   const formattedLeaves = finalLeaves.map(leave => {
     const userName = leave.profiles?.name || "알 수 없음";
     const targetUserId = leave.user_id;
-    
-    // 사용자가 지정한 색상이 있으면 쓰고, 없으면 기본 해시 색상 사용
     const finalColor = customColorMap.get(targetUserId) || getDefaultUserColor(targetUserId);
 
     return {
       ...leave,
       leave_type: `[${userName}] ${leave.leave_type}`,
-      color: finalColor 
+      color: finalColor,
+      // 정렬에 사용할 데이터 임시 저장
+      _pos: leave.profiles?.position || ""
     };
   });
 
+  // ⭐️ 8. [NEW] 직급 ➡️ 직원 순서로 정렬 적용
+  formattedLeaves.sort((a, b) => {
+    // 1순위: 직급 정렬
+    const pOrderA = pSortMap.get(a._pos) ?? 999;
+    const pOrderB = pSortMap.get(b._pos) ?? 999;
+    if (pOrderA !== pOrderB) return pOrderA - pOrderB;
+
+    // 2순위: 직원 개별 정렬
+    const eOrderA = eSortMap.get(a.user_id) ?? 999;
+    const eOrderB = eSortMap.get(b.user_id) ?? 999;
+    return eOrderA - eOrderB;
+  });
+
+  // 클라이언트로 넘기기 전 임시 데이터(_pos) 제거
+  const cleanedLeaves = formattedLeaves.map(({ _pos, ...rest }) => rest);
+
   return {
-    leaves: formattedLeaves,
+    leaves: cleanedLeaves,
     overtimes: [], 
     holidays: holidays || []
   };

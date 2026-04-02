@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { ArrowLeft, Check, Loader2, Users } from "lucide-react";
 import { getColleaguesColors, saveColleagueColor, saveBulkColleagueColors } from "@/app/actions/calendar-settings";
+import { createClient } from "@/utils/supabase/client"; // ⭐️ Supabase 클라이언트 임포트
 
 const PALETTE = [
   "#FCA5A5", "#FDBA74", "#FCD34D", "#86EFAC", "#67E8F9", 
@@ -12,8 +13,17 @@ const PALETTE = [
 
 type Profile = { id: string; name: string; department: string };
 
+// ⭐️ 정렬된 순서를 보장하기 위한 타입 정의
+type GroupedProfile = {
+  dept: string;
+  profiles: Profile[];
+};
+
 export default function CalendarSettingsPage() {
-  const [groupedProfiles, setGroupedProfiles] = useState<Record<string, Profile[]>>({});
+  const supabase = createClient();
+  
+  // ⭐️ 상태 타입을 배열로 변경하여 순서 보장
+  const [groupedProfiles, setGroupedProfiles] = useState<GroupedProfile[]>([]);
   const [colorMap, setColorMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -22,18 +32,46 @@ export default function CalendarSettingsPage() {
   useEffect(() => {
     async function loadData() {
       try {
-        const { profiles, preferences } = await getColleaguesColors();
+        // ⭐️ 1. 색상 데이터와 정렬 설정 데이터를 동시에 가져옵니다.
+        const [
+          { profiles, preferences },
+          { data: sortData }
+        ] = await Promise.all([
+          getColleaguesColors(),
+          supabase.from('sort_settings').select('*')
+        ]);
         
-        // ⭐️ 1. 부서별로 데이터 그룹화
-        const grouped = profiles.reduce((acc: Record<string, Profile[]>, profile: Profile) => {
-          const dept = profile.department || "부서 미지정";
+        // ⭐️ 2. 정렬 데이터 매핑
+        const dSorts: Record<string, number> = {};
+        const eSorts: Record<string, number> = {};
+        if (sortData) {
+          sortData.forEach((s: any) => {
+            if (s.target_type === 'department') dSorts[s.target_id] = s.sort_order;
+            if (s.target_type === 'employee') eSorts[s.target_id] = s.sort_order;
+          });
+        }
+
+        // 3. 부서별로 1차 그룹화
+        const groupedMap = profiles.reduce((acc: Record<string, Profile[]>, profile: Profile) => {
+          const dept = profile.department || "소속 없음";
           if (!acc[dept]) acc[dept] = [];
           acc[dept].push(profile);
           return acc;
         }, {});
-        setGroupedProfiles(grouped);
+
+        // ⭐️ 4. 부서 정렬 및 부서 내 직원 정렬 적용
+        const sortedDepts = Object.keys(groupedMap).sort((a, b) => (dSorts[a] ?? 99) - (dSorts[b] ?? 99));
         
-        // 2. 기존 설정된 색상 매핑
+        const sortedGroupedProfiles = sortedDepts.map(dept => {
+          const emps = groupedMap[dept];
+          // 직원 정렬
+          emps.sort((a, b) => (eSorts[a.id] ?? 99) - (eSorts[b.id] ?? 99));
+          return { dept, profiles: emps };
+        });
+
+        setGroupedProfiles(sortedGroupedProfiles);
+        
+        // 5. 기존 설정된 색상 매핑
         const map: Record<string, string> = {};
         preferences.forEach((pref: any) => {
           map[pref.target_user_id] = pref.color;
@@ -46,9 +84,9 @@ export default function CalendarSettingsPage() {
       }
     }
     loadData();
-  }, []);
+  }, [supabase]);
 
-  // ⭐️ 개별 색상 저장
+  // 개별 색상 저장
   const handleColorSelect = async (targetUserId: string, color: string) => {
     setSavingId(targetUserId);
     setColorMap(prev => ({ ...prev, [targetUserId]: color })); // 즉시 반영
@@ -62,7 +100,7 @@ export default function CalendarSettingsPage() {
     }
   };
 
-  // ⭐️ 부서 일괄 색상 저장
+  // 부서 일괄 색상 저장
   const handleDepartmentColorSelect = async (deptName: string, deptProfiles: Profile[], color: string) => {
     setSavingDept(deptName);
     
@@ -94,7 +132,6 @@ export default function CalendarSettingsPage() {
   return (
     <div className="max-w-4xl mx-auto p-6 bg-white rounded-xl shadow-sm border border-gray-200 mt-8">
       <div className="flex items-center gap-4 mb-8 border-b border-gray-100 pb-6">
-        {/* ✅ 뒤로가기 링크 수정됨 */}
         <Link href="/" className="p-2 hover:bg-gray-100 rounded-full transition-colors">
           <ArrowLeft className="w-6 h-6 text-gray-600" />
         </Link>
@@ -107,10 +144,11 @@ export default function CalendarSettingsPage() {
       </div>
 
       <div className="space-y-8">
-        {Object.entries(groupedProfiles).map(([deptName, profiles]) => (
+        {/* ⭐️ 배열을 순회하도록 변경됨 */}
+        {groupedProfiles.map(({ dept: deptName, profiles }) => (
           <div key={deptName} className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
             
-            {/* ⭐️ 부서 헤더 (일괄 설정 영역) */}
+            {/* 부서 헤더 (일괄 설정 영역) */}
             <div className="bg-gray-50 px-5 py-4 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-center gap-2">
                 <Users className="w-5 h-5 text-gray-500" />
@@ -172,7 +210,7 @@ export default function CalendarSettingsPage() {
           </div>
         ))}
 
-        {Object.keys(groupedProfiles).length === 0 && (
+        {groupedProfiles.length === 0 && (
           <div className="text-center py-12 text-gray-500 bg-gray-50 rounded-xl border border-dashed border-gray-200">
             표시할 동료가 없습니다.
           </div>

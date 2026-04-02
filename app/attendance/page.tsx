@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { createClient } from "@/utils/supabase/client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Calendar, Clock, Search, Smartphone, Monitor } from "lucide-react";
+import { ArrowLeft, Calendar, Clock, Search, Smartphone, Monitor, Building2 } from "lucide-react";
 
 interface EmployeeAttendance {
   id: string;
@@ -14,8 +14,14 @@ interface EmployeeAttendance {
   clock_in: string | null;
   clock_out: string | null;
   status: '미출근' | '근무중' | '퇴근완료' | '자동마감';
-  in_device?: string | null;  // [NEW] 출근 기기 정보
-  out_device?: string | null; // [NEW] 퇴근 기기 정보
+  in_device?: string | null;
+  out_device?: string | null;
+}
+
+// ⭐️ 부서별 그룹화를 위한 타입
+interface GroupedAttendance {
+  dept: string;
+  employees: EmployeeAttendance[];
 }
 
 const getLocalToday = () => {
@@ -26,11 +32,9 @@ const getLocalToday = () => {
   return `${year}-${month}-${day}`;
 };
 
-// 📱 [NEW] 기기 아이콘 렌더링 컴포넌트
 function DeviceBadge({ device }: { device?: string | null }) {
   if (!device) return <span className="text-gray-300 text-xs">-</span>;
   
-  // 'mobile'이라는 단어가 포함되어 있으면 모바일로 간주, 그 외는 PC로 간주
   const isMobile = device.toLowerCase().includes('mobile');
   
   return isMobile ? (
@@ -49,7 +53,7 @@ export default function AttendancePage() {
   const router = useRouter();
   
   const [selectedDate, setSelectedDate] = useState(getLocalToday());
-  const [attendanceList, setAttendanceList] = useState<EmployeeAttendance[]>([]);
+  const [groupedList, setGroupedList] = useState<GroupedAttendance[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -57,23 +61,31 @@ export default function AttendancePage() {
     const fetchAttendanceData = async () => {
       setIsLoading(true);
       try {
-        const { data: profiles, error: profileError } = await supabase
-          .from('profiles')
-          .select('id, name, department, position')
-          .is('resigned_at', null)
-          .neq("department", "외주") 
-          .order('name');
+        // ⭐️ 1. 프로필, 출퇴근 기록, 정렬 설정을 동시에 가져옵니다.
+        const [
+          { data: profiles, error: profileError },
+          { data: attendance, error: attendanceError },
+          { data: sortData, error: sortError }
+        ] = await Promise.all([
+          supabase.from('profiles').select('id, name, department, position').is('resigned_at', null).neq("department", "외주"),
+          supabase.from('attendance').select('user_id, clock_in, clock_out, is_auto_checkout, in_device, out_device').eq('date', selectedDate),
+          supabase.from('sort_settings').select('*')
+        ]);
 
         if (profileError) throw profileError;
-
-        // ⭐️ DB 쿼리 수정: 위치 데이터 대신 in_device, out_device를 가져옵니다.
-        const { data: attendance, error: attendanceError } = await supabase
-          .from('attendance')
-          .select('user_id, clock_in, clock_out, is_auto_checkout, in_device, out_device')
-          .eq('date', selectedDate);
-
         if (attendanceError) throw attendanceError;
 
+        // ⭐️ 2. 정렬 데이터 매핑
+        const dSorts: Record<string, number> = {};
+        const eSorts: Record<string, number> = {};
+        if (sortData) {
+          sortData.forEach((s: any) => {
+            if (s.target_type === 'department') dSorts[s.target_id] = s.sort_order;
+            if (s.target_type === 'employee') eSorts[s.target_id] = s.sort_order;
+          });
+        }
+
+        // 3. 직원 데이터와 출퇴근 기록 병합
         const mergedData: EmployeeAttendance[] = (profiles || []).map(profile => {
           const record = attendance?.find(a => a.user_id === profile.id) as any;
           
@@ -91,17 +103,28 @@ export default function AttendancePage() {
           return {
             id: profile.id,
             name: profile.name,
-            department: profile.department || '부서미지정',
+            department: profile.department || '소속 없음',
             position: profile.position || '직급미지정',
             clock_in: formatTime(record?.clock_in),
             clock_out: formatTime(record?.clock_out),
             status,
-            in_device: record?.in_device,   // DB에서 가져온 출근 기기
-            out_device: record?.out_device, // DB에서 가져온 퇴근 기기
+            in_device: record?.in_device,
+            out_device: record?.out_device,
           };
         });
 
-        setAttendanceList(mergedData);
+        // ⭐️ 4. 부서 정렬 및 부서별 직원 그룹화 & 정렬
+        const uniqueDepts = Array.from(new Set(mergedData.map(emp => emp.department)));
+        const sortedDepts = uniqueDepts.sort((a, b) => (dSorts[a] ?? 99) - (dSorts[b] ?? 99));
+
+        const grouped = sortedDepts.map(dept => {
+          const emps = mergedData.filter(emp => emp.department === dept);
+          // 직원 정렬
+          emps.sort((a, b) => (eSorts[a.id] ?? 99) - (eSorts[b.id] ?? 99));
+          return { dept, employees: emps };
+        });
+
+        setGroupedList(grouped);
       } catch (error) {
         console.error("출퇴근 명부 조회 실패:", error);
       } finally {
@@ -112,14 +135,19 @@ export default function AttendancePage() {
     fetchAttendanceData();
   }, [selectedDate, supabase]);
 
-  const filteredList = attendanceList.filter(emp => 
-    emp.name.includes(searchTerm) || emp.department.includes(searchTerm)
-  );
+  // ⭐️ 검색어 필터링 (부서명 또는 직원 이름)
+  const filteredGroupedList = groupedList.map(group => ({
+    dept: group.dept,
+    employees: group.employees.filter(emp => 
+      emp.name.includes(searchTerm) || group.dept.includes(searchTerm)
+    )
+  })).filter(group => group.employees.length > 0); // 직원이 없는 부서는 숨김 처리
 
   return (
     <main className="min-h-screen bg-gray-50 p-6">
       <div className="w-full max-w-[95%] mx-auto space-y-6">
         
+        {/* 상단 헤더 */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Link href="/" className="p-2 bg-white rounded-full shadow-sm hover:bg-gray-100 transition-colors">
@@ -137,21 +165,18 @@ export default function AttendancePage() {
           </div>
         </div>
 
+        {/* 필터 영역 */}
         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-4 justify-between items-center">
-          
-          {/* 날짜 선택기 */}
           <div className="flex items-center gap-2 w-full md:w-auto">
             <Calendar className="w-5 h-5 text-gray-400" />
             <input 
               type="date" 
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
-              // ⭐️ text-gray-900 bg-white 추가
               className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
             />
           </div>
           
-          {/* 검색창 */}
           <div className="relative w-full md:w-64">
             <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input 
@@ -159,63 +184,106 @@ export default function AttendancePage() {
               placeholder="이름 또는 부서 검색..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              // ⭐️ text-gray-900 bg-white 추가
               className="w-full border border-gray-200 rounded-lg pl-9 pr-3 py-2 text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
             />
           </div>
-          
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          
-          {/* 🖥️ [PC 뷰] 화면이 넓을 때(md 이상)만 보이는 테이블 형태 */}
-          <div className="hidden md:block overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[900px]">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-100 text-sm text-gray-500">
-                  <th className="p-4 font-semibold w-[150px]">이름 / 직급</th>
-                  <th className="p-4 font-semibold w-[120px]">부서</th>
-                  <th className="p-4 font-semibold w-[120px]">출근 시간</th>
-                  <th className="p-4 font-semibold w-[120px]">출근 기기</th>
-                  <th className="p-4 font-semibold w-[120px]">퇴근 시간</th>
-                  <th className="p-4 font-semibold w-[120px]">퇴근 기기</th>
-                  <th className="p-4 font-semibold text-center w-[100px]">상태</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={7} className="p-8 text-center text-gray-400">데이터를 불러오는 중입니다...</td>
-                  </tr>
-                ) : filteredList.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="p-8 text-center text-gray-400">검색 결과가 없습니다.</td>
-                  </tr>
-                ) : (
-                  filteredList.map((emp) => (
-                    <tr 
+        {/* ⭐️ 부서별 리스트 렌더링 영역 */}
+        {isLoading ? (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-10 text-center text-gray-400">
+            데이터를 불러오는 중입니다...
+          </div>
+        ) : filteredGroupedList.length === 0 ? (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-10 text-center text-gray-400">
+            검색 결과가 없습니다.
+          </div>
+        ) : (
+          <div className="space-y-8">
+            {filteredGroupedList.map((group) => (
+              <div key={group.dept} className="space-y-3 animate-in fade-in duration-300">
+                
+                {/* 🏢 부서 헤더 */}
+                <div className="flex items-center gap-2 px-1">
+                  <Building2 className="w-5 h-5 text-blue-600" />
+                  <h2 className="text-lg font-bold text-gray-800">{group.dept}</h2>
+                  <span className="text-xs font-medium text-gray-500 bg-gray-200 px-2.5 py-0.5 rounded-full ml-1">
+                    {group.employees.length}명
+                  </span>
+                </div>
+
+                {/* 🖥️ [PC 뷰] 부서별 테이블 */}
+                <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                  <table className="w-full text-left border-collapse min-w-[900px]">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-100 text-sm text-gray-500">
+                        <th className="p-4 font-semibold w-[200px]">이름 / 직급</th>
+                        <th className="p-4 font-semibold w-[150px]">출근 시간</th>
+                        <th className="p-4 font-semibold w-[150px]">출근 기기</th>
+                        <th className="p-4 font-semibold w-[150px]">퇴근 시간</th>
+                        <th className="p-4 font-semibold w-[150px]">퇴근 기기</th>
+                        <th className="p-4 font-semibold text-center w-[120px]">상태</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {group.employees.map((emp) => (
+                        <tr 
+                          key={emp.id} 
+                          onClick={() => router.push(`/attendance/${emp.id}`)}
+                          className="hover:bg-blue-50/50 transition-colors cursor-pointer group"
+                        >
+                          <td className="p-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xs group-hover:bg-blue-200 transition-colors">
+                                {emp.name.substring(0, 1)}
+                              </div>
+                              <div>
+                                <div className="font-bold text-gray-800">{emp.name}</div>
+                                <div className="text-xs text-gray-500">{emp.position}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="p-4 text-sm font-medium text-gray-800">{emp.clock_in}</td>
+                          <td className="p-4">{emp.clock_in !== '-' && <DeviceBadge device={emp.in_device} />}</td>
+                          <td className="p-4 text-sm font-medium text-gray-800">{emp.clock_out}</td>
+                          <td className="p-4">{emp.clock_out !== '-' && <DeviceBadge device={emp.out_device} />}</td>
+                          <td className="p-4 text-center">
+                            <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${
+                              emp.status === '근무중' ? 'bg-green-100 text-green-700' :
+                              emp.status === '자동마감' ? 'bg-orange-100 text-orange-700 border border-orange-200' :
+                              emp.status === '퇴근완료' ? 'bg-gray-100 text-gray-600' :
+                              'bg-red-50 text-red-500'
+                            }`}>
+                              {emp.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* 📱 [모바일 뷰] 부서별 카드 리스트 */}
+                <div className="block md:hidden bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden divide-y divide-gray-100">
+                  {group.employees.map((emp) => (
+                    <div 
                       key={emp.id} 
                       onClick={() => router.push(`/attendance/${emp.id}`)}
-                      className="hover:bg-blue-50/50 transition-colors cursor-pointer group"
+                      className="p-4 hover:bg-blue-50/50 transition-colors cursor-pointer active:bg-blue-50 flex flex-col gap-3"
                     >
-                      <td className="p-4">
+                      <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xs group-hover:bg-blue-200 transition-colors">
+                          <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-sm shrink-0">
                             {emp.name.substring(0, 1)}
                           </div>
                           <div>
-                            <div className="font-bold text-gray-800">{emp.name}</div>
-                            <div className="text-xs text-gray-500">{emp.position}</div>
+                            <div className="font-bold text-gray-800 text-base flex items-center gap-1.5">
+                              {emp.name} 
+                              <span className="text-xs text-gray-500 font-normal">{emp.position}</span>
+                            </div>
                           </div>
                         </div>
-                      </td>
-                      <td className="p-4 text-sm text-gray-600">{emp.department}</td>
-                      <td className="p-4 text-sm font-medium text-gray-800">{emp.clock_in}</td>
-                      <td className="p-4">{emp.clock_in !== '-' && <DeviceBadge device={emp.in_device} />}</td>
-                      <td className="p-4 text-sm font-medium text-gray-800">{emp.clock_out}</td>
-                      <td className="p-4">{emp.clock_out !== '-' && <DeviceBadge device={emp.out_device} />}</td>
-                      <td className="p-4 text-center">
-                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${
+                        <span className={`shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${
                           emp.status === '근무중' ? 'bg-green-100 text-green-700' :
                           emp.status === '자동마감' ? 'bg-orange-100 text-orange-700 border border-orange-200' :
                           emp.status === '퇴근완료' ? 'bg-gray-100 text-gray-600' :
@@ -223,78 +291,37 @@ export default function AttendancePage() {
                         }`}>
                           {emp.status}
                         </span>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {/* 📱 [모바일 뷰] 화면이 좁을 때(md 미만)만 보이는 카드 형태 */}
-          <div className="block md:hidden divide-y divide-gray-100">
-            {isLoading ? (
-              <div className="p-8 text-center text-gray-400 text-sm">데이터를 불러오는 중입니다...</div>
-            ) : filteredList.length === 0 ? (
-              <div className="p-8 text-center text-gray-400 text-sm">검색 결과가 없습니다.</div>
-            ) : (
-              filteredList.map((emp) => (
-                <div 
-                  key={emp.id} 
-                  onClick={() => router.push(`/attendance/${emp.id}`)}
-                  className="p-4 hover:bg-blue-50/50 transition-colors cursor-pointer active:bg-blue-50 flex flex-col gap-3"
-                >
-                  {/* 상단: 프로필, 이름, 부서, 상태 배지 */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-sm shrink-0">
-                        {emp.name.substring(0, 1)}
                       </div>
-                      <div>
-                        <div className="font-bold text-gray-800 text-base flex items-center gap-1.5">
-                          {emp.name} 
-                          <span className="text-xs text-gray-500 font-normal">{emp.position}</span>
+
+                      <div className="bg-gray-50 rounded-lg p-3 grid grid-cols-2 gap-3">
+                        <div className="flex flex-col gap-1">
+                          <span className="text-xs text-gray-500 font-medium">출근</span>
+                          <div className="font-bold text-gray-800 text-sm">{emp.clock_in}</div>
+                          {emp.clock_in !== '-' && (
+                            <div className="mt-0.5">
+                              <DeviceBadge device={emp.in_device} />
+                            </div>
+                          )}
                         </div>
-                        <div className="text-xs text-gray-500 mt-0.5">{emp.department}</div>
+                        <div className="flex flex-col gap-1 border-l border-gray-200 pl-3">
+                          <span className="text-xs text-gray-500 font-medium">퇴근</span>
+                          <div className="font-bold text-gray-800 text-sm">{emp.clock_out}</div>
+                          {emp.clock_out !== '-' && (
+                            <div className="mt-0.5">
+                              <DeviceBadge device={emp.out_device} />
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
-                    <span className={`shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${
-                      emp.status === '근무중' ? 'bg-green-100 text-green-700' :
-                      emp.status === '자동마감' ? 'bg-orange-100 text-orange-700 border border-orange-200' :
-                      emp.status === '퇴근완료' ? 'bg-gray-100 text-gray-600' :
-                      'bg-red-50 text-red-500'
-                    }`}>
-                      {emp.status}
-                    </span>
-                  </div>
-
-                  {/* 하단: 출퇴근 시간 및 기기 정보 박스 */}
-                  <div className="bg-gray-50 rounded-lg p-3 grid grid-cols-2 gap-3">
-                    <div className="flex flex-col gap-1">
-                      <span className="text-xs text-gray-500 font-medium">출근</span>
-                      <div className="font-bold text-gray-800 text-sm">{emp.clock_in}</div>
-                      {emp.clock_in !== '-' && (
-                        <div className="mt-0.5">
-                          <DeviceBadge device={emp.in_device} />
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex flex-col gap-1 border-l border-gray-200 pl-3">
-                      <span className="text-xs text-gray-500 font-medium">퇴근</span>
-                      <div className="font-bold text-gray-800 text-sm">{emp.clock_out}</div>
-                      {emp.clock_out !== '-' && (
-                        <div className="mt-0.5">
-                          <DeviceBadge device={emp.out_device} />
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                  ))}
                 </div>
-              ))
-            )}
-          </div>
 
-        </div>
+              </div>
+            ))}
+          </div>
+        )}
+
       </div>
     </main>
   );

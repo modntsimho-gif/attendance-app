@@ -28,10 +28,38 @@ export async function getEmployees() {
         total_days
       )
     `)
-    .order("name");
+    .neq("department", "외주");
+
+  if (!data) return [];
+
+  // ⭐️ 1. 직급 순서 정의 (위에서 아래로 노출하고 싶은 순서대로 작성)
+  const positionOrder = ["사무총장", "팀장", "차장", "과장", "대리", "간사"];
+
+  // ⭐️ 2. 직급 -> 이름 순으로 정렬 (JS 단에서 처리)
+  const sortedData = data.sort((a, b) => {
+    const posA = a.position || "";
+    const posB = b.position || "";
     
-  return data;
+    const indexA = positionOrder.indexOf(posA);
+    const indexB = positionOrder.indexOf(posB);
+
+    // 둘 다 정의된 직급이 있는 경우 직급 순서 비교
+    if (indexA !== -1 && indexB !== -1) {
+      if (indexA !== indexB) return indexA - indexB; 
+    } 
+    // 한 쪽만 직급이 없는 경우 (직급 없는 사람을 맨 뒤로 보냄)
+    else if (indexA !== -1) return -1;
+    else if (indexB !== -1) return 1;
+
+    // 직급이 같거나 둘 다 직급이 없는 경우 -> 이름 가나다순 정렬
+    const nameA = a.name || "";
+    const nameB = b.name || "";
+    return nameA.localeCompare(nameB);
+  });
+    
+  return sortedData;
 }
+
 
 // 2. 직원 정보 수정
 export async function updateEmployee(userId: string, formData: any) {
@@ -55,6 +83,7 @@ export async function updateEmployee(userId: string, formData: any) {
       department: formData.department,
       position: formData.position,
       role: formData.role,
+      is_approver: formData.is_approver, // ⭐️ 결재 권한 저장 추가
       resigned_at: formData.resigned_at || null, 
     })
     .eq("id", userId);
@@ -154,6 +183,7 @@ export async function resetAllUsedLeaveDays() {
     .from("profiles")
     .select("role")
     .eq("id", user.id)
+    .neq("position","외주")
     .single();
 
   if (adminProfile?.role !== 'manager') return { error: "관리자 권한이 없습니다." };
@@ -224,6 +254,39 @@ export async function bulkUpsertAllocations(
     return { success: true };
   } catch (error: any) {
     console.error("엑셀 일괄 업로드 에러:", error);
+    return { success: false, error: error.message };
+  }
+}
+
+// 12. 정렬 설정 조회
+export async function getSortSettings() {
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("sort_settings").select("*");
+  if (error) return [];
+  return data;
+}
+
+// 13. 정렬 설정 일괄 저장 (부서 + 직원)
+export async function updateSortSettings(
+  sortData: { target_id: string; target_type: string; sort_order: number }[]
+) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: "로그인이 필요합니다." };
+
+  try {
+    // target_id를 기준으로 덮어쓰기(upsert)
+    const { error } = await supabase
+      .from("sort_settings")
+      .upsert(sortData, { onConflict: "target_id" });
+
+    if (error) throw error;
+
+    revalidatePath("/admin");
+    revalidatePath("/schedule");
+    return { success: true };
+  } catch (error: any) {
+    console.error("정렬 순서 업데이트 에러:", error);
     return { success: false, error: error.message };
   }
 }
