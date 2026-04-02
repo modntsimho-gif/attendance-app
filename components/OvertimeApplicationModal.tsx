@@ -33,6 +33,7 @@ interface ApproverUser {
   rank: string;
   dept: string;
   status?: string;
+  is_approver?: boolean; // ⭐️ 결재권자 여부 필드 추가
 }
 
 interface OvertimeRecord {
@@ -945,7 +946,10 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
                 <button type="button" onClick={() => setIsApproverSelectOpen(false)} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
               </div>
               <ul className="flex-1 overflow-y-auto p-1">
-                {colleagues.map((user) => (
+                {/* ⭐️ [NEW] 결재권자 권한(is_approver)이 있는 직원만 필터링하여 렌더링 */}
+                {colleagues
+                  .filter((user) => user.is_approver)
+                  .map((user) => (
                   <li key={user.id}>
                     <button 
                       type="button" 
@@ -961,6 +965,11 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
                     </button>
                   </li>
                 ))}
+                {colleagues.filter((user) => user.is_approver).length === 0 && (
+                  <li className="text-center py-4 text-xs text-gray-500">
+                    선택 가능한 결재권자가 없습니다.
+                  </li>
+                )}
               </ul>
             </div>
           </div>

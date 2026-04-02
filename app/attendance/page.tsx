@@ -18,7 +18,6 @@ interface EmployeeAttendance {
   out_device?: string | null;
 }
 
-// ⭐️ 부서별 그룹화를 위한 타입
 interface GroupedAttendance {
   dept: string;
   employees: EmployeeAttendance[];
@@ -56,12 +55,14 @@ export default function AttendancePage() {
   const [groupedList, setGroupedList] = useState<GroupedAttendance[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  
+  // ⭐️ [추가] 선택된 부서 상태 관리
+  const [selectedDept, setSelectedDept] = useState<string>("전체");
 
   useEffect(() => {
     const fetchAttendanceData = async () => {
       setIsLoading(true);
       try {
-        // ⭐️ 1. 프로필, 출퇴근 기록, 정렬 설정을 동시에 가져옵니다.
         const [
           { data: profiles, error: profileError },
           { data: attendance, error: attendanceError },
@@ -75,7 +76,6 @@ export default function AttendancePage() {
         if (profileError) throw profileError;
         if (attendanceError) throw attendanceError;
 
-        // ⭐️ 2. 정렬 데이터 매핑
         const dSorts: Record<string, number> = {};
         const eSorts: Record<string, number> = {};
         if (sortData) {
@@ -85,7 +85,6 @@ export default function AttendancePage() {
           });
         }
 
-        // 3. 직원 데이터와 출퇴근 기록 병합
         const mergedData: EmployeeAttendance[] = (profiles || []).map(profile => {
           const record = attendance?.find(a => a.user_id === profile.id) as any;
           
@@ -113,13 +112,11 @@ export default function AttendancePage() {
           };
         });
 
-        // ⭐️ 4. 부서 정렬 및 부서별 직원 그룹화 & 정렬
         const uniqueDepts = Array.from(new Set(mergedData.map(emp => emp.department)));
         const sortedDepts = uniqueDepts.sort((a, b) => (dSorts[a] ?? 99) - (dSorts[b] ?? 99));
 
         const grouped = sortedDepts.map(dept => {
           const emps = mergedData.filter(emp => emp.department === dept);
-          // 직원 정렬
           emps.sort((a, b) => (eSorts[a.id] ?? 99) - (eSorts[b.id] ?? 99));
           return { dept, employees: emps };
         });
@@ -135,13 +132,19 @@ export default function AttendancePage() {
     fetchAttendanceData();
   }, [selectedDate, supabase]);
 
-  // ⭐️ 검색어 필터링 (부서명 또는 직원 이름)
-  const filteredGroupedList = groupedList.map(group => ({
-    dept: group.dept,
-    employees: group.employees.filter(emp => 
-      emp.name.includes(searchTerm) || group.dept.includes(searchTerm)
-    )
-  })).filter(group => group.employees.length > 0); // 직원이 없는 부서는 숨김 처리
+  // ⭐️ [추가] 존재하는 부서 목록 추출 (필터 버튼용)
+  const availableDepts = ["전체", ...groupedList.map(g => g.dept)];
+
+  // ⭐️ [수정] 검색어 필터링 + 부서 필터링 동시 적용
+  const filteredGroupedList = groupedList
+    .filter(group => selectedDept === "전체" || group.dept === selectedDept) // 부서 필터 적용
+    .map(group => ({
+      dept: group.dept,
+      employees: group.employees.filter(emp => 
+        emp.name.includes(searchTerm) || group.dept.includes(searchTerm)
+      )
+    }))
+    .filter(group => group.employees.length > 0);
 
   return (
     <main className="min-h-screen bg-gray-50 p-6">
@@ -165,31 +168,52 @@ export default function AttendancePage() {
           </div>
         </div>
 
-        {/* 필터 영역 */}
-        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-4 justify-between items-center">
-          <div className="flex items-center gap-2 w-full md:w-auto">
-            <Calendar className="w-5 h-5 text-gray-400" />
-            <input 
-              type="date" 
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-            />
+        {/* ⭐️ [수정] 필터 영역 (날짜/검색 + 부서 필터) */}
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 space-y-4">
+          <div className="flex flex-col md:flex-row gap-4 justify-between items-center">
+            <div className="flex items-center gap-2 w-full md:w-auto">
+              <Calendar className="w-5 h-5 text-gray-400" />
+              <input 
+                type="date" 
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
+            
+            <div className="relative w-full md:w-64">
+              <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input 
+                type="text" 
+                placeholder="이름 또는 부서 검색..." 
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg pl-9 pr-3 py-2 text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
           </div>
-          
-          <div className="relative w-full md:w-64">
-            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input 
-              type="text" 
-              placeholder="이름 또는 부서 검색..." 
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg pl-9 pr-3 py-2 text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-            />
-          </div>
+
+          {/* ⭐️ [추가] 부서별 필터 버튼 영역 */}
+          {!isLoading && groupedList.length > 0 && (
+            <div className="pt-2 border-t border-gray-100 flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
+              {availableDepts.map(dept => (
+                <button
+                  key={dept}
+                  onClick={() => setSelectedDept(dept)}
+                  className={`px-4 py-1.5 rounded-full text-sm font-bold whitespace-nowrap transition-all ${
+                    selectedDept === dept 
+                      ? "bg-blue-600 text-white shadow-sm ring-2 ring-blue-200" 
+                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}
+                >
+                  {dept}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* ⭐️ 부서별 리스트 렌더링 영역 */}
+        {/* 리스트 렌더링 영역 */}
         {isLoading ? (
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-10 text-center text-gray-400">
             데이터를 불러오는 중입니다...

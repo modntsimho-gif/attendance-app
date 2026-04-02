@@ -85,10 +85,10 @@ export async function getCalendarEvents(
   const startDateStr = format(viewStart, "yyyy-MM-dd");
   const endDateStr = format(viewEnd, "yyyy-MM-dd");
 
-  // ⭐️ 2. 휴가 전체 조회 (정렬을 위해 position 정보 추가)
+  // ⭐️ 2. 휴가 전체 조회 (정렬 및 필터를 위해 position, department 정보 추가)
   let leavesQuery = supabase
     .from("leave_requests")
-    .select("*, profiles(name, position)");
+    .select("*, profiles(name, position, department)"); // ✅ department 추가
     
   if (userId) {
     leavesQuery = leavesQuery.eq("user_id", userId);
@@ -115,7 +115,7 @@ export async function getCalendarEvents(
     });
   }
 
-  // ⭐️ 5. [NEW] 직급 및 직원 정렬 기준(sort_settings) 통합 조회
+  // 5. 직급 및 직원 정렬 기준(sort_settings) 통합 조회
   const { data: sortData } = await supabase
     .from("sort_settings")
     .select("target_type, target_id, sort_order")
@@ -147,6 +147,7 @@ export async function getCalendarEvents(
 
     return {
       ...leave,
+      department: leave.profiles?.department || "소속 없음", // ✅ 부서 정보 매핑 추가
       leave_type: `[${userName}] ${leave.leave_type}`,
       color: finalColor,
       // 정렬에 사용할 데이터 임시 저장
@@ -154,7 +155,7 @@ export async function getCalendarEvents(
     };
   });
 
-  // ⭐️ 8. [NEW] 직급 ➡️ 직원 순서로 정렬 적용
+  // 8. 직급 ➡️ 직원 순서로 정렬 적용
   formattedLeaves.sort((a, b) => {
     // 1순위: 직급 정렬
     const pOrderA = pSortMap.get(a._pos) ?? 999;
@@ -172,7 +173,7 @@ export async function getCalendarEvents(
 
   return {
     leaves: cleanedLeaves,
-    overtimes: [], 
+    overtimes: [], // 초과근무도 필요하다면 동일하게 department 매핑이 필요합니다.
     holidays: holidays || []
   };
 }

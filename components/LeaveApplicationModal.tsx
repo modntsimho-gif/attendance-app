@@ -47,6 +47,7 @@ interface ApproverUser {
   rank: string;
   dept: string;
   status?: string;
+  is_approver?: boolean; // ⭐️ 결재권자 여부 필드 추가
 }
 
 interface OvertimeRecord {
@@ -60,7 +61,6 @@ interface OvertimeRecord {
   recognized_hours: number;
   used_hours: number;
   reason: string;
-  // ⭐️ 아래 4개 필드 추가
   status?: string;
   request_type?: string;
   original_overtime_request_id?: string;
@@ -79,8 +79,8 @@ interface LeaveRecord {
   handover_notes?: string;
   status: string;
   created_at: string;
-  overtime_request_id?: string; // 기존 단일 ID 호환용
-  overtime_request_ids?: string; // ⭐️ 다중 ID JSON 배열 문자열
+  overtime_request_id?: string; 
+  overtime_request_ids?: string; 
 }
 
 export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, initialData }: LeaveApplicationModalProps) {
@@ -119,7 +119,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
 
   const [overtimeList, setOvertimeList] = useState<OvertimeRecord[]>([]);
   
-  // ⭐️ [변경] 단일 ID에서 배열로 변경 (다중 선택 지원)
   const [selectedOvertimeIds, setSelectedOvertimeIds] = useState<string[]>([]);
   const [linkedOvertimes, setLinkedOvertimes] = useState<OvertimeRecord[]>([]);
 
@@ -159,13 +158,11 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
           fetchOriginalLeave();
         }
 
-        // ⭐️ [변경] 여러 개의 연결된 초과근무 내역 불러오기
         if (initialData.overtime_request_ids || initialData.overtime_request_id) {
           const fetchLinkedOts = async () => {
             let ids: string[] = [];
             const rawIds = initialData.overtime_request_ids || initialData.overtime_request_id;
             try {
-              // JSON 배열 문자열인지 확인 후 파싱
               ids = typeof rawIds === 'string' && rawIds.startsWith('[') 
                 ? JSON.parse(rawIds) 
                 : [rawIds];
@@ -216,7 +213,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
         setEndTime("");
         setCalcResult({ duration: 0, totalDeduction: 0 });
         
-        // ⭐️ [변경] 초기화 시 배열 비우기
         setOvertimeList([]);
         setSelectedOvertimeIds([]);
         setLinkedOvertimes([]); 
@@ -319,7 +315,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
         setReason(leave.reason || "");
     }
 
-    // ⭐️ [변경] 원본 연차의 초과근무 매핑 데이터 복원 (배열 처리)
     if (leave.overtime_request_ids || leave.overtime_request_id) {
         const rawIds = leave.overtime_request_ids || leave.overtime_request_id;
         try {
@@ -341,47 +336,36 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
         
-        // 1. 유저의 모든 초과근무 내역 가져오기
         const { data: otData } = await supabase
           .from("overtime_requests")
           .select("*")
           .eq("user_id", user.id)
           .order("created_at", { ascending: false });
           
-        // 2. 현재 '결재 대기 중(pending)'인 휴가 신청서들 가져오기
-        // ✅ 수정된 코드 (안전하게 모든 컬럼 가져오기)
         const { data: pendingLeaves } = await supabase
           .from("leave_requests")
           .select("*") 
           .eq("user_id", user.id)
           .eq("status", "pending");
 
-        // ⭐️ 3. [수정] 대기 중인 신청서에서 사용 중인 초과근무 ID 추출 (배열/문자열 완벽 대응)
         const lockedOtIds = new Set<string>();
         if (pendingLeaves) {
           pendingLeaves.forEach(leave => {
             const rawIds = leave.overtime_request_ids || leave.overtime_request_id;
             if (rawIds) {
               try {
-                // DB에서 이미 배열(JSON) 형태로 넘어온 경우
                 if (Array.isArray(rawIds)) {
                   rawIds.forEach(id => lockedOtIds.add(id));
-                } 
-                // DB에서 문자열(Text) 형태로 넘어온 경우
-                else if (typeof rawIds === 'string') {
+                } else if (typeof rawIds === 'string') {
                   const parsed = rawIds.startsWith('[') ? JSON.parse(rawIds) : [rawIds];
                   parsed.forEach((id: string) => lockedOtIds.add(id));
                 }
               } catch(e) {
-                // 파싱 실패 시 단일 텍스트로 간주하고 추가
                 lockedOtIds.add(String(rawIds));
               }
             }
           });
         }
-        
-        // 💡 디버깅용: F12 개발자 도구 콘솔에서 어떤 ID들이 잠겼는지 확인할 수 있습니다.
-        // console.log("잠긴 초과근무 IDs:", Array.from(lockedOtIds));
 
         if (otData) {
           const itemMap = new Map<string, any>();
@@ -416,10 +400,8 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
             group.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
             const latest = group[0]; 
 
-            // 4. 승인됨 + 취소아님 + "결재 대기 중인 내역에 포함되지 않음(!lockedOtIds.has)"
             if (latest.status === 'approved' && latest.request_type !== 'cancel') {
               const remaining = (latest.recognized_hours || 0) - (latest.used_hours || 0);
-              // ⭐️ 잠긴 ID 목록에 없는 초과근무만 목록에 추가
               if (remaining > 0 && !lockedOtIds.has(latest.id)) {
                 validOvertimes.push(latest);
               }
@@ -521,7 +503,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
       return;
     }
 
-    // ⭐️ [변경] 대체휴무 신청 시 다중 선택된 시간 합산 검증
     if (selectedLeaveType.startsWith("대체휴무")) {
       if (selectedOvertimeIds.length === 0) { alert("대체휴무 정보가 올바르지 않습니다. (초과근무를 선택해주세요)"); return; }
       
@@ -571,13 +552,11 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
 
   const isCompensatory = selectedLeaveType.startsWith("대체휴무");
   
-  // ⭐️ [변경] 선택된 항목들의 총 잔여 시간 계산
   const currentReqDays = calcResult.totalDeduction > 0 ? calcResult.totalDeduction : leaveFactor;
   const currentReqHours = currentReqDays * 8;
   const selectedOtItems = overtimeList.filter(ot => selectedOvertimeIds.includes(ot.id));
   const totalSelectedRemaining = selectedOtItems.reduce((sum, ot) => sum + ((ot.recognized_hours || 0) - (ot.used_hours || 0)), 0);
   
-  // 합산된 시간이 필요 시간보다 크거나 같으면 유효함
   const isSelectionValid = requestType === 'cancel' || (selectedOvertimeIds.length > 0 && totalSelectedRemaining >= currentReqHours);
 
   const isFormDisabled = isViewMode || requestType === 'cancel';
@@ -608,7 +587,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
         <form action={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
           <input type="hidden" name="approversJson" value={JSON.stringify(approvers)} />
           <input type="hidden" name="totalLeaveDays" value={calcResult.totalDeduction} />
-          {/* ⭐️ [변경] 배열을 JSON 문자열로 변환하여 전송 */}
           <input type="hidden" name="overtimeRequestIds" value={JSON.stringify(selectedOvertimeIds)} />
           <input type="hidden" name="requestType" value={requestType} />
           <input type="hidden" name="originalLeaveId" value={selectedOriginalLeaveId} />
@@ -878,7 +856,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                       ? 'bg-blue-50 border-blue-200' 
                       : 'bg-gray-50 border-gray-200'
                 }`}>
-                  {/* ⭐️ [변경] 다중 선택 헤더 및 남은 시간 현황판 */}
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <Clock className={`w-5 h-5 ${isSelectionValid || isViewMode ? 'text-blue-600' : 'text-gray-600'}`} />
@@ -939,7 +916,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                                   : 'bg-white hover:bg-gray-50 border-gray-200'
                               }`}>
                                 <div className="flex items-center gap-3">
-                                  {/* ⭐️ [변경] 라디오 버튼 -> 체크박스 */}
                                   <input 
                                     type="checkbox" 
                                     name="overtimeSelect" 
@@ -947,7 +923,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                                     checked={isSelected}
                                     onChange={(e) => {
                                       if (e.target.checked) {
-                                        // 🚨 [NEW] 이미 필요한 시간을 다 채웠는지 검사
                                         if (totalSelectedRemaining >= currentReqHours) {
                                           alert(`이미 필요한 시간(${currentReqHours}시간)을 모두 채웠습니다. 더 이상 선택할 필요가 없습니다.`);
                                           e.preventDefault();
@@ -1103,7 +1078,6 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
         </form>
 
         {isApproverSelectOpen && (
-          // ... 기존 결재자 선택 모달 코드 유지 ...
           <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/10 backdrop-blur-[1px]">
              <div className="bg-white rounded-xl shadow-2xl border border-gray-200 w-64 max-h-[300px] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
               <div className="px-4 py-3 border-b bg-gray-50 flex justify-between items-center">
@@ -1113,7 +1087,10 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                 <button type="button" onClick={() => setIsApproverSelectOpen(false)} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
               </div>
               <ul className="flex-1 overflow-y-auto p-1">
-                {colleagues.map((user) => (
+                {/* ⭐️ [NEW] 결재권자 권한(is_approver)이 있는 직원만 필터링하여 렌더링 */}
+                {colleagues
+                  .filter((user) => user.is_approver)
+                  .map((user) => (
                   <li key={user.id}>
                     <button 
                       type="button" 
@@ -1129,6 +1106,11 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                     </button>
                   </li>
                 ))}
+                {colleagues.filter((user) => user.is_approver).length === 0 && (
+                  <li className="text-center py-4 text-xs text-gray-500">
+                    선택 가능한 결재권자가 없습니다.
+                  </li>
+                )}
               </ul>
             </div>
           </div>

@@ -28,7 +28,7 @@ type Profile = {
   position: string | null; role: string; join_date: string | null;
   resigned_at: string | null; total_leave_days: number; used_leave_days: number;
   extra_leave_days: number; extra_used_leave_days: number;
-  is_approver?: boolean; // ⭐️ 결재 권한 타입 추가
+  is_approver?: boolean;
   annual_leave_allocations?: Allocation[];
 };
 type Holiday = { id: string; date: string; title: string; };
@@ -214,11 +214,13 @@ export default function AdminPage() {
     if (res.success) { const updated = await getHolidays(); setHolidays(updated || []); }
   };
 
-  const filteredEmployees = employees.filter(emp => 
-    emp.name.includes(searchTerm) || (emp.department && emp.department.includes(searchTerm))
-  );
-
   if (!isMounted || loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin text-gray-400" /></div>;
+
+  // ⭐️ [변경] 검색 결과가 있는지 확인하기 위한 변수
+  const hasSearchResults = orderedDepts.some(dept => {
+    const deptEmps = orderedEmpsByDept[dept] || [];
+    return deptEmps.some(emp => emp.name.includes(searchTerm) || (emp.department && emp.department.includes(searchTerm)));
+  });
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -259,57 +261,88 @@ export default function AdminPage() {
               </div>
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-              <table className="w-full text-sm text-left">
-                <thead className="bg-gray-50 text-gray-600 font-bold uppercase text-xs border-b">
-                  <tr>
-                    <th className="px-6 py-4">이름 / 부서</th>
-                    <th className="px-6 py-4 text-center">결재 권한</th>
-                    <th className="px-6 py-4">연도별 기초 연차 내역</th>
-                    <th className="px-6 py-4 text-center">관리</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {filteredEmployees.map((user) => (
-                    <tr key={user.id} className={`hover:bg-gray-50 ${user.resigned_at ? "bg-gray-100/50" : ""}`}>
-                      <td className="px-6 py-4 align-top">
-                        <div className="flex items-center gap-2">
-                          <div className={`font-bold text-base ${user.resigned_at ? "text-gray-400 line-through" : "text-gray-900"}`}>{user.name}</div>
-                          {user.resigned_at && <span className="px-2 py-0.5 bg-red-100 text-red-600 text-[10px] font-bold rounded-full">퇴사</span>}
-                        </div>
-                        <div className="text-gray-500 text-xs mt-0.5">{user.department} / {user.position}</div>
-                      </td>
-                      
-                      <td className="px-6 py-4 text-center align-middle">
-                        {user.is_approver ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold rounded-md">
-                            <CheckCircle2 className="w-3 h-3" /> 결재권자
-                          </span>
-                        ) : (
-                          <span className="text-gray-300 text-xs">-</span>
-                        )}
-                      </td>
+            {/* ⭐️ [변경] 부서별 카드 리스트 형태로 렌더링 */}
+            <div className="space-y-6">
+              {!hasSearchResults && (
+                <div className="text-center py-12 bg-white rounded-xl border border-gray-100 text-gray-500">
+                  검색 결과가 없습니다.
+                </div>
+              )}
 
-                      <td className="px-6 py-4">
-                        <div className="flex flex-wrap gap-2">
-                          {user.annual_leave_allocations && user.annual_leave_allocations.length > 0 ? (
-                            user.annual_leave_allocations.sort((a, b) => b.year - a.year).map((alloc) => (
-                              <span key={alloc.year} className={`px-2.5 py-1 rounded-md text-xs font-bold border ${alloc.year === new Date().getFullYear() ? "bg-blue-50 text-blue-700 border-blue-100" : "bg-gray-50 text-gray-600 border-gray-200"}`}>
-                                {alloc.year}년: {alloc.total_days}개
+              {orderedDepts.map(dept => {
+                const deptEmps = (orderedEmpsByDept[dept] || []).filter(emp => 
+                  emp.name.includes(searchTerm) || (emp.department && emp.department.includes(searchTerm))
+                );
+
+                if (deptEmps.length === 0) return null;
+
+                return (
+                  <div key={dept} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                    {/* 부서 헤더 */}
+                    <div className="bg-gray-50 px-5 py-3 border-b flex justify-between items-center">
+                      <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                        <Building2 className="w-4 h-4 text-blue-600" />
+                        {dept}
+                      </h3>
+                      <span className="text-xs font-bold text-gray-500 bg-white px-2 py-1 rounded border shadow-sm">
+                        {deptEmps.length}명
+                      </span>
+                    </div>
+
+                    {/* 부서 소속 직원 리스트 (모바일 친화적) */}
+                    <div className="divide-y divide-gray-100">
+                      {deptEmps.map(user => (
+                        <div key={user.id} className={`p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-gray-50 transition-colors ${user.resigned_at ? "bg-gray-50/50" : ""}`}>
+                          
+                          {/* 직원 기본 정보 */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                              <span className={`font-bold text-base ${user.resigned_at ? "text-gray-400 line-through" : "text-gray-900"}`}>
+                                {user.name}
                               </span>
-                            ))
-                          ) : <span className="text-gray-400 text-xs">설정된 내역 없음</span>}
+                              <span className="text-sm text-gray-500">{user.position || "-"}</span>
+                              
+                              {user.resigned_at && (
+                                <span className="px-2 py-0.5 bg-red-100 text-red-600 text-[10px] font-bold rounded-full">퇴사</span>
+                              )}
+                              {user.is_approver && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold rounded-md">
+                                  <CheckCircle2 className="w-3 h-3" /> 결재권자
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* 연차 내역 */}
+                          <div className="flex-1">
+                            <div className="flex flex-wrap gap-1.5">
+                              {user.annual_leave_allocations && user.annual_leave_allocations.length > 0 ? (
+                                user.annual_leave_allocations.sort((a, b) => b.year - a.year).map((alloc) => (
+                                  <span key={alloc.year} className={`px-2 py-1 rounded text-[11px] font-bold border ${alloc.year === new Date().getFullYear() ? "bg-blue-50 text-blue-700 border-blue-100" : "bg-gray-50 text-gray-600 border-gray-200"}`}>
+                                    {alloc.year}년: {alloc.total_days}개
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-gray-400 text-xs">설정된 연차 없음</span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* 관리 버튼 */}
+                          <div className="flex justify-end shrink-0">
+                            <button 
+                              onClick={() => handleEdit(user)} 
+                              className="bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-4 py-2 md:px-3 md:py-1.5 rounded-lg text-sm md:text-xs font-bold transition-colors inline-flex items-center gap-1 shadow-sm w-full md:w-auto justify-center"
+                            >
+                              <Edit className="w-4 h-4 md:w-3 md:h-3" /> 관리
+                            </button>
+                          </div>
                         </div>
-                      </td>
-                      <td className="px-6 py-4 text-center align-middle">
-                        <button onClick={() => handleEdit(user)} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors inline-flex items-center gap-1">
-                          <Edit className="w-3 h-3" /> 수정
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </>
         )}
@@ -445,7 +478,7 @@ export default function AdminPage() {
                   </select>
                 </div>
                 
-                {/* ⭐️ 결재 권한 토글 스위치 추가 */}
+                {/* 결재 권한 토글 스위치 */}
                 <div className="col-span-2 sm:col-span-1">
                   <label className="block text-xs font-bold text-gray-500 mb-1">결재 권한 (승인자)</label>
                   <div className="flex items-center h-[38px] px-3 border rounded-lg bg-white">

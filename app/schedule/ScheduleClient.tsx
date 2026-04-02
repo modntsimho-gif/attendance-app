@@ -21,15 +21,16 @@ export default function ScheduleClient({
   const supabase = createClient();
   const currentYear = new Date().getFullYear();
   
-  // [State] 선택된 연도 및 검색어
+  // [State] 선택된 연도, 검색어, 부서 필터
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedDept, setSelectedDept] = useState<string>("전체"); // ⭐️ 부서 필터 상태 추가
 
-  // ⭐️ [State] 정렬 기준 데이터
+  // [State] 정렬 기준 데이터
   const [dSorts, setDSorts] = useState<Record<string, number>>({});
   const [eSorts, setESorts] = useState<Record<string, number>>({});
 
-  // ⭐️ DB에서 정렬 기준(sort_settings) 불러오기
+  // DB에서 정렬 기준(sort_settings) 불러오기
   useEffect(() => {
     const fetchSortSettings = async () => {
       const { data } = await supabase.from('sort_settings').select('*');
@@ -125,26 +126,40 @@ export default function ScheduleClient({
     });
   }, [employees, allocations, leaves, overtimes, selectedYear, currentYear]);
 
-  // ⭐️ [Logic] 부서별 그룹화 및 정렬 적용
-  const groupedData = useMemo(() => {
-    // 1. 검색어 필터링
-    const filtered = searchTerm.trim() 
+  // ⭐️ [Logic] 검색, 부서 필터링, 정렬 및 그룹화 적용
+  const { availableDepts, groupedData, activeDept } = useMemo(() => {
+    // 1. 검색어 필터링 적용 (이름 또는 부서)
+    const searchFiltered = searchTerm.trim() 
       ? tableData.filter(emp => 
           emp.name.includes(searchTerm) || emp.department.includes(searchTerm)
         )
       : tableData;
 
-    // 2. 부서별로 그룹화 및 정렬
-    const uniqueDepts = Array.from(new Set(filtered.map(emp => emp.department)));
+    // 2. 검색 결과 내 존재하는 부서 목록 추출 및 정렬 (버튼 렌더링용)
+    const uniqueDepts = Array.from(new Set(searchFiltered.map(emp => emp.department)));
     const sortedDepts = uniqueDepts.sort((a, b) => (dSorts[a] ?? 99) - (dSorts[b] ?? 99));
+    const availableDepts = ["전체", ...sortedDepts];
 
-    return sortedDepts.map(dept => {
-      const emps = filtered.filter(emp => emp.department === dept);
-      // 부서 내 직원 정렬
+    // 예외 처리: 현재 선택된 부서가 검색 결과에 없으면 '전체'로 폴백
+    const activeDept = availableDepts.includes(selectedDept) ? selectedDept : "전체";
+
+    // 3. 선택된 부서 필터링 적용
+    const deptFiltered = activeDept === "전체" 
+      ? searchFiltered 
+      : searchFiltered.filter(emp => emp.department === activeDept);
+
+    // 4. 최종 그룹화 및 직원 정렬
+    const finalUniqueDepts = Array.from(new Set(deptFiltered.map(emp => emp.department)));
+    const finalSortedDepts = finalUniqueDepts.sort((a, b) => (dSorts[a] ?? 99) - (dSorts[b] ?? 99));
+
+    const groupedData = finalSortedDepts.map(dept => {
+      const emps = deptFiltered.filter(emp => emp.department === dept);
       emps.sort((a, b) => (eSorts[a.id] ?? 99) - (eSorts[b.id] ?? 99));
       return { dept, employees: emps };
     });
-  }, [tableData, searchTerm, dSorts, eSorts]);
+
+    return { availableDepts, groupedData, activeDept };
+  }, [tableData, searchTerm, selectedDept, dSorts, eSorts]);
 
   // 사용 가능한 연도 목록 추출
   const availableYears = Array.from(new Set([
@@ -160,7 +175,7 @@ export default function ScheduleClient({
     <main className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-[1400px] mx-auto space-y-6">
         
-        {/* 헤더 */}
+        {/* 상단 헤더 및 검색/연도 필터 */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <Link 
@@ -206,7 +221,26 @@ export default function ScheduleClient({
           </div>
         </div>
 
-        {/* ⭐️ 부서별 리스트 렌더링 영역 */}
+        {/* ⭐️ 부서별 탭 (Pill) 필터 영역 */}
+        {availableDepts.length > 1 && (
+          <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
+            {availableDepts.map(dept => (
+              <button
+                key={dept}
+                onClick={() => setSelectedDept(dept)}
+                className={`px-4 py-1.5 rounded-full text-sm font-bold whitespace-nowrap transition-all ${
+                  activeDept === dept 
+                    ? "bg-indigo-600 text-white shadow-md ring-2 ring-indigo-200" 
+                    : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                }`}
+              >
+                {dept}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* 부서별 리스트 렌더링 영역 */}
         <div className="space-y-8">
           {groupedData.length > 0 ? (
             groupedData.map((group) => (
