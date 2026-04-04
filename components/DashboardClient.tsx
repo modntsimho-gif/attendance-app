@@ -27,7 +27,6 @@ interface DashboardClientProps {
   employees: Employee[];
 }
 
-// 📱 유틸리티 함수 축약
 const getDateStr = (offset = 0) => {
   const d = new Date(); d.setDate(d.getDate() + offset);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -36,7 +35,6 @@ const detectDevice = () => typeof window !== 'undefined' && /android|webos|iphon
 const format = (v: number) => Number(v.toFixed(2)).toString();
 const calcRate = (t: number, u: number) => t <= 0 ? 0 : Math.min(100, Math.max(0, (u / t) * 100));
 
-// 🧩 반복되는 통계 박스 UI 컴포넌트
 const StatBox = ({ label, val, valColor, isRate = false, rateVal = 0, barColor = "" }: any) => (
   <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between relative overflow-hidden">
     <div>
@@ -53,7 +51,6 @@ const StatBox = ({ label, val, valColor, isRate = false, rateVal = 0, barColor =
   </div>
 );
 
-// 🧩 반복되는 메뉴 버튼 UI 컴포넌트
 const MenuBtn = ({ onClick, icon: Icon, title, isSub = false, count = 0, mainClass = "" }: any) => (
   <button onClick={onClick} className={`w-full flex items-center justify-between px-4 rounded-lg transition-colors ${isSub ? "text-gray-500 hover:text-gray-800 hover:bg-gray-50 py-2 text-sm font-medium" : `${mainClass} py-3 font-bold`}`}>
     <span className="flex items-center gap-2"><Icon className="w-4 h-4"/> {title}</span>
@@ -69,12 +66,10 @@ export default function DashboardClient({
   const supabase = createClient(); 
   const currentYear = new Date().getFullYear();
 
-  // 상태(State) 그룹화 및 단축
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [stats, setStats] = useState({ total: totalLeave, leaveCount: leaveRequestCount, otCount: overtimeRequestCount });
   
-  // 👈 수정된 부분: autoTime 상태 추가
   const [att, setAtt] = useState({ 
     status: 'none' as 'none' | 'checked_in' | 'checked_out', 
     inTime: null as string | null, 
@@ -88,19 +83,18 @@ export default function DashboardClient({
 
   const toggleM = (k: keyof typeof m, v: boolean) => setM(p => ({ ...p, [k]: v }));
 
-  // Props 동기화
   useEffect(() => setStats(s => ({ ...s, leaveCount: leaveRequestCount, otCount: overtimeRequestCount })), [leaveRequestCount, overtimeRequestCount]);
 
-  // 데이터 패칭 로직 통합 (Promise.all 활용)
   useEffect(() => {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       
+      const yestDateStr = getDateStr(-1); // 어제 날짜 문자열
+      
       const [todayRes, yestRes] = await Promise.all([
         supabase.from('attendance').select('*').eq('user_id', user.id).eq('date', getDateStr()).maybeSingle(),
-        // 👈 수정된 부분: clock_out 데이터 추가로 가져오기
-        supabase.from('attendance').select('is_auto_checkout, clock_out').eq('user_id', user.id).eq('date', getDateStr(-1)).maybeSingle()
+        supabase.from('attendance').select('is_auto_checkout, clock_out').eq('user_id', user.id).eq('date', yestDateStr).maybeSingle()
       ]);
 
       if (todayRes.data) {
@@ -111,9 +105,12 @@ export default function DashboardClient({
           status: todayRes.data.clock_in ? (todayRes.data.clock_out ? 'checked_out' : 'checked_in') : 'none'
         }));
       }
-      if (yestRes.data?.is_auto_checkout) {
+      
+      // 👈 로컬스토리지: 사용자가 이미 경고창을 닫았는지 확인
+      const isDismissed = localStorage.getItem(`hide_auto_checkout_${yestDateStr}`);
+
+      if (yestRes.data?.is_auto_checkout && !isDismissed) {
         const y = new Date(); y.setDate(y.getDate() - 1);
-        // 👈 수정된 부분: clock_out 시간을 포맷팅하여 autoTimeStr에 저장
         const autoTimeStr = yestRes.data.clock_out 
           ? new Date(yestRes.data.clock_out).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) 
           : '시간 미상';
@@ -121,14 +118,19 @@ export default function DashboardClient({
         setAtt(p => ({ 
           ...p, 
           autoDate: `${String(y.getMonth() + 1).padStart(2, '0')}/${String(y.getDate()).padStart(2, '0')}`,
-          autoTime: autoTimeStr // 👈 상태 업데이트
+          autoTime: autoTimeStr 
         }));
       }
     })();
     getMyCurrentYearStats().then(s => s?.totalLeave !== undefined && setStats(p => ({ ...p, total: s.totalLeave }))).catch(console.error);
   }, [supabase]);
 
-  // 출퇴근 로직 단일 함수로 통합
+  // 👈 로컬스토리지: 경고창 닫기 버튼 클릭 시 기록 저장
+  const handleDismissAutoCheckout = () => {
+    localStorage.setItem(`hide_auto_checkout_${getDateStr(-1)}`, 'true');
+    setAtt(p => ({...p, autoDate: null}));
+  };
+
   const handleAttendance = async (type: 'in' | 'out' | 'cancel') => {
     if (type === 'cancel' && !confirm("퇴근 처리를 취소하시겠습니까? 다시 근무 중 상태로 변경됩니다.")) return;
     try {
@@ -157,7 +159,6 @@ export default function DashboardClient({
   const handleLogout = async () => { try { await supabase.auth.signOut(); router.push("/login"); router.refresh(); } catch { alert("로그아웃 실패"); } };
   const handleRefresh = () => { setIsRefreshing(true); router.refresh(); setTimeout(() => setIsRefreshing(false), 1000); };
 
-  // 통계 계산
   const aRem = stats.total - usedLeave, aRate = calcRate(stats.total, usedLeave);
   const eRem = extraTotalLeave - extraUsedLeave, eRate = calcRate(extraTotalLeave, extraUsedLeave);
 
@@ -175,7 +176,6 @@ export default function DashboardClient({
 
   return (
     <main className="min-h-screen bg-gray-50 p-6">
-      {/* 모달 그룹 */}
       <LeaveApplicationModal isOpen={m.leave} onClose={() => toggleM('leave', false)} onSuccess={() => { setStats(s => ({...s, leaveCount: s.leaveCount + 1})); router.refresh(); }} />
       <LeaveHistoryModal isOpen={m.history} onClose={() => toggleM('history', false)} onDelete={() => { setStats(s => ({...s, leaveCount: Math.max(0, s.leaveCount - 1)})); router.refresh(); }} />
       <WorkHistoryModal isOpen={m.work} onClose={() => toggleM('work', false)} />
@@ -189,10 +189,10 @@ export default function DashboardClient({
             <div className="p-1.5 bg-orange-100 rounded-full shrink-0 mt-0.5"><AlertTriangle className="w-4 h-4 text-orange-600" /></div>
             <div className="flex-1">
               <h3 className="font-bold text-orange-800 text-sm">어제({att.autoDate}) 퇴근 기록이 누락되었습니다.</h3>
-              {/* 👈 수정된 부분: 18:00 대신 {att.autoTime} 사용 */}
-              <p className="text-orange-700 text-sm mt-1">시스템에 의해 <strong>{att.autoTime}로 자동 마감</strong> 처리되었습니다. 실제와 다르다면 관리자에게 수정을 요청하세요.</p>
+              <p className="text-orange-700 text-sm mt-1">시스템에 의해 <strong>{att.autoTime}로 자동 마감</strong> 처리되었습니다.</p>
             </div>
-            <button onClick={() => setAtt(p => ({...p, autoDate: null}))} className="text-orange-400 hover:text-orange-600 p-1">✕</button>
+            {/* 👈 로컬스토리지: 닫기 버튼 클릭 이벤트 연결 */}
+            <button onClick={handleDismissAutoCheckout} className="text-orange-400 hover:text-orange-600 p-1">✕</button>
           </div>
         )}
 
