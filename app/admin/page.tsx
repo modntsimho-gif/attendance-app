@@ -150,8 +150,109 @@ export default function AdminPage() {
     }
   };
 
-  const handleDownloadExcel = () => { /* 엑셀 다운로드 유지 */ };
-  const handleUploadExcel = async (e: React.ChangeEvent<HTMLInputElement>) => { /* 엑셀 업로드 유지 */ };
+  // ⭐️ 엑셀 다운로드 기능 구현
+  const handleDownloadExcel = () => {
+    try {
+      const currentYear = new Date().getFullYear();
+      
+      const excelData = employees.length > 0 
+        ? employees.map(emp => ({
+            "고유ID(수정금지)": emp.id,
+            "이름": emp.name,
+            "이메일": emp.email,
+            "부서": emp.department || "",
+            "직급": emp.position || "",
+            "적용연도": currentYear,
+            "총발생연차": 15
+          }))
+        : [{
+            "고유ID(수정금지)": "00000000-0000-0000-0000-000000000000",
+            "이름": "홍길동",
+            "이메일": "test@example.com",
+            "부서": "경영지원팀",
+            "직급": "간사",
+            "적용연도": currentYear,
+            "총발생연차": 15
+          }];
+
+      const worksheet = XLSX.utils.json_to_sheet(excelData);
+      
+      worksheet["!cols"] = [
+        { wch: 38 }, // 고유ID
+        { wch: 10 }, // 이름
+        { wch: 25 }, // 이메일
+        { wch: 15 }, // 부서
+        { wch: 10 }, // 직급
+        { wch: 10 }, // 적용연도
+        { wch: 12 }, // 총발생연차
+      ];
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "연차일괄업로드");
+      
+      const fileName = `연차_일괄업로드_양식_${format(new Date(), "yyyyMMdd")}.xlsx`;
+      XLSX.writeFile(workbook, fileName);
+    } catch (error) {
+      console.error("엑셀 다운로드 에러:", error);
+      alert("엑셀 파일을 생성하는 중 오류가 발생했습니다.");
+    }
+  };
+
+  // ⭐️ 엑셀 업로드 기능 구현
+  const handleUploadExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsExcelProcessing(true);
+
+    try {
+      const reader = new FileReader();
+      
+      reader.onload = async (event) => {
+        try {
+          const data = new Uint8Array(event.target?.result as ArrayBuffer);
+          const workbook = XLSX.read(data, { type: "array" });
+          const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+          const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+          const allocations = jsonData.map((row: any) => ({
+            user_id: row["고유ID(수정금지)"],
+            year: Number(row["적용연도"]),
+            total_days: Number(row["총발생연차"])
+          })).filter(item => item.user_id && item.year && !isNaN(item.total_days));
+
+          if (allocations.length === 0) {
+            alert("업로드할 유효한 데이터가 없습니다. 양식을 다시 확인해주세요.");
+            setIsExcelProcessing(false);
+            return;
+          }
+
+          const res = await bulkUpsertAllocations(allocations);
+          
+          if (res.success) {
+            alert(`총 ${allocations.length}명의 연차 정보가 성공적으로 업데이트되었습니다.`);
+            loadData();
+          } else {
+            alert("업로드 실패: " + res.error);
+          }
+        } catch (err) {
+          console.error("파일 처리 중 오류:", err);
+          alert("파일 데이터를 읽는 중 오류가 발생했습니다.");
+        } finally {
+          setIsExcelProcessing(false);
+          if (fileInputRef.current) fileInputRef.current.value = "";
+        }
+      };
+
+      reader.readAsArrayBuffer(file);
+    } catch (error) {
+      console.error("엑셀 업로드 에러:", error);
+      alert("엑셀 파일을 처리하는 중 오류가 발생했습니다.");
+      setIsExcelProcessing(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   const handleResetAllLeaves = async () => { /* 초기화 유지 */ };
   
   const handleEdit = async (user: Profile) => {
@@ -216,7 +317,6 @@ export default function AdminPage() {
 
   if (!isMounted || loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin text-gray-400" /></div>;
 
-  // ⭐️ [변경] 검색 결과가 있는지 확인하기 위한 변수
   const hasSearchResults = orderedDepts.some(dept => {
     const deptEmps = orderedEmpsByDept[dept] || [];
     return deptEmps.some(emp => emp.name.includes(searchTerm) || (emp.department && emp.department.includes(searchTerm)));
@@ -261,7 +361,6 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* ⭐️ [변경] 부서별 카드 리스트 형태로 렌더링 */}
             <div className="space-y-6">
               {!hasSearchResults && (
                 <div className="text-center py-12 bg-white rounded-xl border border-gray-100 text-gray-500">
@@ -278,7 +377,6 @@ export default function AdminPage() {
 
                 return (
                   <div key={dept} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                    {/* 부서 헤더 */}
                     <div className="bg-gray-50 px-5 py-3 border-b flex justify-between items-center">
                       <h3 className="font-bold text-gray-800 flex items-center gap-2">
                         <Building2 className="w-4 h-4 text-blue-600" />
@@ -289,12 +387,10 @@ export default function AdminPage() {
                       </span>
                     </div>
 
-                    {/* 부서 소속 직원 리스트 (모바일 친화적) */}
                     <div className="divide-y divide-gray-100">
                       {deptEmps.map(user => (
                         <div key={user.id} className={`p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-gray-50 transition-colors ${user.resigned_at ? "bg-gray-50/50" : ""}`}>
                           
-                          {/* 직원 기본 정보 */}
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1 flex-wrap">
                               <span className={`font-bold text-base ${user.resigned_at ? "text-gray-400 line-through" : "text-gray-900"}`}>
@@ -313,7 +409,6 @@ export default function AdminPage() {
                             </div>
                           </div>
 
-                          {/* 연차 내역 */}
                           <div className="flex-1">
                             <div className="flex flex-wrap gap-1.5">
                               {user.annual_leave_allocations && user.annual_leave_allocations.length > 0 ? (
@@ -328,7 +423,6 @@ export default function AdminPage() {
                             </div>
                           </div>
 
-                          {/* 관리 버튼 */}
                           <div className="flex justify-end shrink-0">
                             <button 
                               onClick={() => handleEdit(user)} 
@@ -347,7 +441,7 @@ export default function AdminPage() {
           </>
         )}
 
-        {/* 2. 정렬기준 설정 탭 (생략 없이 유지) */}
+        {/* 2. 정렬기준 설정 탭 */}
         {activeTab === "sort" && (
           <DragDropContext onDragEnd={onDragEnd}>
             <div className="space-y-6 animate-in fade-in duration-300">
@@ -414,7 +508,7 @@ export default function AdminPage() {
           </DragDropContext>
         )}
         
-        {/* 3. 공휴일 관리 탭 (생략 없이 유지) */}
+        {/* 3. 공휴일 관리 탭 */}
         {activeTab === "holidays" && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit">
