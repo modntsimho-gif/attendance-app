@@ -3,7 +3,8 @@
 import { useState, useMemo, useEffect } from "react";
 import { createClient } from "@/utils/supabase/client";
 import Link from "next/link";
-import { ArrowLeft, Users, Calendar, PieChart, Search, Building2 } from "lucide-react";
+import { useRouter } from "next/navigation"; // ⭐️ useRouter 추가
+import { ArrowLeft, Users, Calendar, PieChart, Search, Building2, ChevronRight } from "lucide-react"; // ⭐️ ChevronRight 아이콘 추가
 
 interface ScheduleClientProps {
   employees: any[];
@@ -19,18 +20,16 @@ export default function ScheduleClient({
   overtimes 
 }: ScheduleClientProps) {
   const supabase = createClient();
+  const router = useRouter(); // ⭐️ 라우터 초기화
   const currentYear = new Date().getFullYear();
   
-  // [State] 선택된 연도, 검색어, 부서 필터
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedDept, setSelectedDept] = useState<string>("전체"); // ⭐️ 부서 필터 상태 추가
+  const [selectedDept, setSelectedDept] = useState<string>("전체"); 
 
-  // [State] 정렬 기준 데이터
   const [dSorts, setDSorts] = useState<Record<string, number>>({});
   const [eSorts, setESorts] = useState<Record<string, number>>({});
 
-  // DB에서 정렬 기준(sort_settings) 불러오기
   useEffect(() => {
     const fetchSortSettings = async () => {
       const { data } = await supabase.from('sort_settings').select('*');
@@ -48,12 +47,10 @@ export default function ScheduleClient({
     fetchSortSettings();
   }, [supabase]);
 
-  // [Logic] 연도별 데이터 계산
   const tableData = useMemo(() => {
     const yearStr = selectedYear.toString();
 
     return employees.map((emp) => {
-      // --- 1. 기본 연차 계산 ---
       const alloc = allocations.find(a => a.user_id === emp.id && a.year === selectedYear);
       let totalAnnual = 0;
       if (alloc) {
@@ -84,7 +81,6 @@ export default function ScheduleClient({
         }
       }
 
-      // --- 2. 보상 휴가 계산 ---
       const generatedOvertimeHours = overtimes
         .filter(o => 
           o.user_id === emp.id && 
@@ -107,7 +103,7 @@ export default function ScheduleClient({
 
       return {
         ...emp,
-        department: emp.department || '소속 없음', // 부서가 없는 경우 기본값
+        department: emp.department || '소속 없음', 
         stats: {
           annual: {
             total: totalAnnual,
@@ -126,29 +122,23 @@ export default function ScheduleClient({
     });
   }, [employees, allocations, leaves, overtimes, selectedYear, currentYear]);
 
-  // ⭐️ [Logic] 검색, 부서 필터링, 정렬 및 그룹화 적용
   const { availableDepts, groupedData, activeDept } = useMemo(() => {
-    // 1. 검색어 필터링 적용 (이름 또는 부서)
     const searchFiltered = searchTerm.trim() 
       ? tableData.filter(emp => 
           emp.name.includes(searchTerm) || emp.department.includes(searchTerm)
         )
       : tableData;
 
-    // 2. 검색 결과 내 존재하는 부서 목록 추출 및 정렬 (버튼 렌더링용)
     const uniqueDepts = Array.from(new Set(searchFiltered.map(emp => emp.department)));
     const sortedDepts = uniqueDepts.sort((a, b) => (dSorts[a] ?? 99) - (dSorts[b] ?? 99));
     const availableDepts = ["전체", ...sortedDepts];
 
-    // 예외 처리: 현재 선택된 부서가 검색 결과에 없으면 '전체'로 폴백
     const activeDept = availableDepts.includes(selectedDept) ? selectedDept : "전체";
 
-    // 3. 선택된 부서 필터링 적용
     const deptFiltered = activeDept === "전체" 
       ? searchFiltered 
       : searchFiltered.filter(emp => emp.department === activeDept);
 
-    // 4. 최종 그룹화 및 직원 정렬
     const finalUniqueDepts = Array.from(new Set(deptFiltered.map(emp => emp.department)));
     const finalSortedDepts = finalUniqueDepts.sort((a, b) => (dSorts[a] ?? 99) - (dSorts[b] ?? 99));
 
@@ -161,27 +151,21 @@ export default function ScheduleClient({
     return { availableDepts, groupedData, activeDept };
   }, [tableData, searchTerm, selectedDept, dSorts, eSorts]);
 
-  // 사용 가능한 연도 목록 추출
   const availableYears = Array.from(new Set([
     currentYear,
     ...allocations.map(a => a.year),
     ...leaves.map(l => parseInt(l.start_date.split('-')[0]))
   ])).sort((a, b) => b - a);
 
-  // 숫자 포맷팅 헬퍼
   const fmt = (num: number) => Number(num.toFixed(2)).toString();
 
   return (
     <main className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-[1400px] mx-auto space-y-6">
         
-        {/* 상단 헤더 및 검색/연도 필터 */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
-            <Link 
-              href="/" 
-              className="inline-flex items-center gap-2 text-gray-500 hover:text-gray-900 mb-2 transition-colors text-sm font-medium"
-            >
+            <Link href="/" className="inline-flex items-center gap-2 text-gray-500 hover:text-gray-900 mb-2 transition-colors text-sm font-medium">
               <ArrowLeft className="w-4 h-4" /> 대시보드로 돌아가기
             </Link>
             <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
@@ -193,7 +177,6 @@ export default function ScheduleClient({
             </p>
           </div>
 
-          {/* 검색 및 연도 선택기 영역 */}
           <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
             <div className="relative w-full sm:w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -221,7 +204,6 @@ export default function ScheduleClient({
           </div>
         </div>
 
-        {/* ⭐️ 부서별 탭 (Pill) 필터 영역 */}
         {availableDepts.length > 1 && (
           <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
             {availableDepts.map(dept => (
@@ -240,13 +222,11 @@ export default function ScheduleClient({
           </div>
         )}
 
-        {/* 부서별 리스트 렌더링 영역 */}
         <div className="space-y-8">
           {groupedData.length > 0 ? (
             groupedData.map((group) => (
               <div key={group.dept} className="space-y-3 animate-in fade-in duration-300">
                 
-                {/* 🏢 부서 헤더 */}
                 <div className="flex items-center gap-2 px-1">
                   <Building2 className="w-5 h-5 text-indigo-600" />
                   <h2 className="text-lg font-bold text-gray-800">{group.dept}</h2>
@@ -255,7 +235,7 @@ export default function ScheduleClient({
                   </span>
                 </div>
 
-                {/* 🖥️ [PC 뷰] 부서별 테이블 */}
+                {/* 🖥️ [PC 뷰] */}
                 <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                   <table className="w-full text-sm text-left">
                     <thead className="bg-gray-50 text-gray-700 border-b border-gray-200">
@@ -289,21 +269,30 @@ export default function ScheduleClient({
                       {group.employees.map((emp) => {
                         const annual = emp.stats.annual;
                         const extra = emp.stats.extra;
-
                         return (
-                          <tr key={emp.id} className="hover:bg-gray-50 transition-colors group">
-                            <td className="px-6 py-4 sticky left-0 bg-white group-hover:bg-gray-50 transition-colors border-r border-transparent group-hover:border-gray-200">
-                                <Link href={`/schedule/${emp.id}`} className="flex items-center gap-3 group-hover:opacity-80">
-                                <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs">
-                                    {emp.name.slice(0, 1)}
+                          
+                          <tr 
+                            key={emp.id} 
+                            onClick={() => router.push(`/schedule/${emp.id}`)}
+                            className="hover:bg-indigo-50/60 transition-colors group cursor-pointer relative"
+                            title={`${emp.name}님의 상세 내역 보기`}
+                          >
+                            <td className="px-6 py-4 sticky left-0 bg-white group-hover:bg-indigo-50/60 transition-colors border-r border-transparent group-hover:border-indigo-100">
+                              <div className="flex items-center justify-between w-full">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs">
+                                      {emp.name.slice(0, 1)}
+                                  </div>
+                                  <div>
+                                      <div className="font-bold text-gray-900 group-hover:text-indigo-700 transition-colors">
+                                        {emp.name}
+                                      </div>
+                                      <div className="text-xs text-gray-500">{emp.position || "직급없음"}</div>
+                                  </div>
                                 </div>
-                                <div>
-                                    <div className="font-bold text-gray-900 underline decoration-indigo-200 underline-offset-2 group-hover:text-indigo-600">
-                                    {emp.name}
-                                    </div>
-                                    <div className="text-xs text-gray-500">{emp.position || "직급없음"}</div>
-                                </div>
-                                </Link>
+                                {/* ⭐️ 마우스를 올리면 나타나는 화살표 아이콘 */}
+                                <ChevronRight className="w-4 h-4 text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity transform group-hover:translate-x-1" />
+                              </div>
                             </td>
                             <td className="px-4 py-4 text-right border-l border-gray-100 text-gray-600">{fmt(annual.total)}</td>
                             <td className="px-4 py-4 text-right text-blue-600 font-medium">{fmt(annual.used)}</td>
@@ -334,30 +323,38 @@ export default function ScheduleClient({
                   </table>
                 </div>
 
-                {/* 📱 [모바일 뷰] 부서별 카드 리스트 */}
+                {/* 📱 [모바일 뷰] */}
                 <div className="block md:hidden bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden divide-y divide-gray-100">
                   {group.employees.map((emp) => {
                     const annual = emp.stats.annual;
                     const extra = emp.stats.extra;
 
                     return (
-                      <div key={emp.id} className="p-4 hover:bg-gray-50 transition-colors flex flex-col gap-4">
-                        <Link href={`/schedule/${emp.id}`} className="flex items-center gap-3 w-fit">
-                          <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-sm shrink-0">
-                            {emp.name.slice(0, 1)}
-                          </div>
-                          <div>
-                            <div className="font-bold text-gray-900 text-base underline decoration-indigo-200 underline-offset-2">
-                              {emp.name}
+                      
+                      <Link 
+                        href={`/schedule/${emp.id}`} 
+                        key={emp.id} 
+                        className="block p-4 hover:bg-indigo-50/60 active:bg-indigo-100 transition-colors flex flex-col gap-4 group"
+                      >
+                        <div className="flex items-center justify-between w-full">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-sm shrink-0">
+                              {emp.name.slice(0, 1)}
                             </div>
-                            <div className="text-xs text-gray-500 mt-0.5">
-                              {emp.position || "직급없음"}
+                            <div>
+                              <div className="font-bold text-gray-900 text-base group-hover:text-indigo-700 transition-colors">
+                                {emp.name}
+                              </div>
+                              <div className="text-xs text-gray-500 mt-0.5">
+                                {emp.position || "직급없음"}
+                              </div>
                             </div>
                           </div>
-                        </Link>
+                          {/* ⭐️ 우측 화살표 아이콘 */}
+                          <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-indigo-500 transition-colors" />
+                        </div>
 
                         <div className="grid grid-cols-1 gap-3">
-                          {/* 기본 연차 박스 */}
                           <div className="bg-blue-50/30 rounded-lg p-3 border border-blue-100/50">
                             <div className="flex items-center gap-1.5 text-blue-800 font-bold text-sm mb-3">
                               <Calendar className="w-4 h-4" /> 기본 연차
@@ -386,7 +383,6 @@ export default function ScheduleClient({
                             </div>
                           </div>
 
-                          {/* 보상 휴가 박스 */}
                           <div className="bg-orange-50/30 rounded-lg p-3 border border-orange-100/50">
                             <div className="flex items-center gap-1.5 text-orange-800 font-bold text-sm mb-3">
                               <PieChart className="w-4 h-4" /> 연차 외 휴가 (보상)
@@ -415,7 +411,7 @@ export default function ScheduleClient({
                             </div>
                           </div>
                         </div>
-                      </div>
+                      </Link>
                     );
                   })}
                 </div>

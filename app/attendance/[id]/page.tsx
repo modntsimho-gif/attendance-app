@@ -16,17 +16,15 @@ interface AttendanceRecord {
   date: string;
   clock_in: string | null;
   clock_out: string | null;
-  status: '근무중' | '퇴근완료' | '자동마감';
-  in_device?: string | null;  // ⭐️ 출근 기기 추가
-  out_device?: string | null; // ⭐️ 퇴근 기기 추가
+  status: string; // ⭐️ 휴가 타입(연차, 반차 등)이 들어갈 수 있도록 string으로 변경
+  in_device?: string | null;
+  out_device?: string | null;
 }
 
-// 📱 [NEW] 기기 아이콘 렌더링 컴포넌트 추가
+// 📱 기기 아이콘 배지
 function DeviceBadge({ device }: { device?: string | null }) {
   if (!device) return <span className="text-gray-300 text-xs">-</span>;
-  
   const isMobile = device.toLowerCase().includes('mobile');
-  
   return isMobile ? (
     <div className="flex items-center gap-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-100 px-2 py-1 rounded-md w-fit">
       <Smartphone className="w-3.5 h-3.5" /> 모바일
@@ -38,16 +36,56 @@ function DeviceBadge({ device }: { device?: string | null }) {
   );
 }
 
+// 🏷️ 상태 배지 (메인 페이지와 동일한 스타일 적용)
+const StatusBadge = ({ status }: { status: string }) => {
+  const style = 
+    status === '근무중' ? 'bg-green-100 text-green-700' : 
+    status === '자동마감' ? 'bg-orange-100 text-orange-700 border border-orange-200' : 
+    status === '퇴근완료' ? 'bg-gray-100 text-gray-600' : 
+    status === '미출근' ? 'bg-red-50 text-red-500' : 
+    'bg-pink-50 text-pink-600 border border-pink-100'; // 휴가(연차, 반차 등) 스타일
+    
+  return <span className={`shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${style}`}>{status}</span>;
+};
+
+// 🌴 [NEW] 특정 직원의 휴가 데이터를 날짜별로 매핑하는 함수
+function processUserLeaves(data: any[]) {
+  const map = new Map<string, string>();
+  const groups: Record<string, any[]> = {};
+  
+  (data || []).forEach(req => {
+    const k = req.original_leave_request_id || req.id;
+    if (!groups[k]) groups[k] = [];
+    groups[k].push(req);
+  });
+
+  Object.values(groups).forEach((g: any[]) => {
+    g.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const { status, request_type, start_date, end_date, leave_type } = g[0];
+    
+    if (status === 'approved' && request_type !== 'cancel') {
+      // 시작일과 종료일 사이의 모든 날짜를 맵에 저장
+      const start = new Date(start_date.substring(0, 10) + 'T00:00:00');
+      const end = new Date(end_date.substring(0, 10) + 'T00:00:00');
+      
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        map.set(dateStr, leave_type);
+      }
+    }
+  });
+  
+  return map;
+}
+
 export default function EmployeeAttendanceDetail() {
   const params = useParams();
   const userId = params.id as string;
   const supabase = createClient();
 
   const currentYear = new Date().getFullYear();
-  
   const [selectedYear, setSelectedYear] = useState(currentYear.toString());
   const [years, setYears] = useState<string[]>([]); 
-  
   const [profile, setProfile] = useState<EmployeeProfile | null>(null);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -61,83 +99,74 @@ export default function EmployeeAttendanceDetail() {
           .select('date')
           .eq('user_id', userId)
           .order('date', { ascending: false })
-          .limit(1); // ⭐️ .single() 제거!
+          .limit(1);
 
         if (error) throw error;
 
         let maxYear = currentYear; 
-
-        // ⭐️ 데이터가 배열로 오기 때문에 data[0]이 존재하는지 체크합니다.
         if (data && data.length > 0 && data[0].date) {
           const dataYear = new Date(data[0].date).getFullYear();
-          if (dataYear > maxYear) {
-            maxYear = dataYear;
-          }
+          if (dataYear > maxYear) maxYear = dataYear;
         }
 
         const startYear = 2026; 
-        
-        const generatedYears = Array.from(
-          { length: maxYear - startYear + 1 }, 
-          (_, i) => (maxYear - i).toString()
-        );
-        
+        const generatedYears = Array.from({ length: maxYear - startYear + 1 }, (_, i) => (maxYear - i).toString());
         setYears(generatedYears);
       } catch (error) {
-        // 진짜 통신 오류일 때만 로그를 찍습니다.
         console.error("연도 범위 조회 실패:", error);
-        const fallbackYears = Array.from(
-          { length: currentYear - 2026 + 1 }, 
-          (_, i) => (currentYear - i).toString()
-        );
-        setYears(fallbackYears.length > 0 ? fallbackYears : ['2026']);
+        setYears([currentYear.toString()]);
       }
     };
-
     if (userId) fetchYearRange();
   }, [userId, currentYear, supabase]);
 
-  // 2️⃣ 선택한 연도의 상세 데이터 조회
+  // 2️⃣ 선택한 연도의 상세 데이터 및 휴가 조회
   useEffect(() => {
     const fetchDetailData = async () => {
       setIsLoading(true);
       try {
-        const { data: profileData, error: profileError } = await supabase
-          .from('profiles')
-          .select('name, department, position')
-          .eq('id', userId)
-          .single();
-
-        if (profileError) throw profileError;
-        setProfile(profileData);
-
         const startDate = `${selectedYear}-01-01`;
         const endDate = `${selectedYear}-12-31`;
 
-        // ⭐️ [수정] in_device, out_device 컬럼 추가 조회
-        const { data: attendanceData, error: attendanceError } = await supabase
-          .from('attendance')
-          .select('date, clock_in, clock_out, is_auto_checkout, in_device, out_device')
-          .eq('user_id', userId)
-          .gte('date', startDate)
-          .lte('date', endDate)
-          .order('date', { ascending: false });
+        // ⭐️ 프로필, 출퇴근 기록, 휴가 기록을 병렬로 한 번에 가져옵니다.
+        const [ { data: profileData }, { data: attendanceData }, { data: leaveData } ] = await Promise.all([
+          supabase.from('profiles').select('name, department, position').eq('id', userId).single(),
+          supabase.from('attendance').select('date, clock_in, clock_out, is_auto_checkout, in_device, out_device').eq('user_id', userId).gte('date', startDate).lte('date', endDate),
+          supabase.from('leave_requests').select('*').eq('user_id', userId).lte('start_date', endDate).gte('end_date', startDate)
+        ]);
 
-        if (attendanceError) throw attendanceError;
+        setProfile(profileData);
 
-        const formattedRecords: AttendanceRecord[] = (attendanceData || []).map(record => {
-          let status: '근무중' | '퇴근완료' | '자동마감' = '근무중';
-          if (record.clock_in && record.clock_out) {
-            status = record.is_auto_checkout ? '자동마감' : '퇴근완료';
+        // 휴가 데이터를 날짜별로 매핑 (예: '2026-04-06' -> '연차')
+        const leaveMap = processUserLeaves(leaveData || []);
+
+        // ⭐️ 출퇴근 기록이 있는 날짜 + 휴가를 쓴 날짜를 모두 모아서 중복 제거 후 내림차순 정렬
+        const allDates = new Set<string>();
+        (attendanceData || []).forEach(a => allDates.add(a.date));
+        Array.from(leaveMap.keys()).forEach(d => {
+          if (d >= startDate && d <= endDate) allDates.add(d);
+        });
+        const sortedDates = Array.from(allDates).sort((a, b) => b.localeCompare(a));
+
+        // 최종 데이터 배열 생성
+        const formattedRecords: AttendanceRecord[] = sortedDates.map(dateStr => {
+          const record = attendanceData?.find(a => a.date === dateStr);
+          
+          // ⭐️ 상태 결정: 휴가가 있으면 휴가 최우선, 없으면 출퇴근 기록으로 판단
+          let status = '';
+          if (leaveMap.has(dateStr)) {
+            status = leaveMap.get(dateStr)!;
+          } else {
+            status = record?.clock_in ? (record.clock_out ? (record.is_auto_checkout ? '자동마감' : '퇴근완료') : '근무중') : '미출근';
           }
 
           return {
-            date: record.date,
-            clock_in: record.clock_in ? new Date(record.clock_in).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '-',
-            clock_out: record.clock_out ? new Date(record.clock_out).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '-',
+            date: dateStr,
+            clock_in: record?.clock_in ? new Date(record.clock_in).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '-',
+            clock_out: record?.clock_out ? new Date(record.clock_out).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '-',
             status,
-            in_device: record.in_device,   // ⭐️ 출근 기기 매핑
-            out_device: record.out_device  // ⭐️ 퇴근 기기 매핑
+            in_device: record?.in_device,
+            out_device: record?.out_device
           };
         });
 
@@ -192,7 +221,7 @@ export default function EmployeeAttendanceDetail() {
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           
-          {/* 🖥️ [PC 뷰] 화면이 넓을 때(md 이상)만 보이는 테이블 형태 */}
+          {/* 🖥️ [PC 뷰] */}
           <div className="hidden md:block overflow-x-auto max-h-[70vh] overflow-y-auto custom-scrollbar">
             <table className="w-full text-left border-collapse min-w-[800px]">
               <thead className="sticky top-0 bg-gray-50 shadow-sm z-10">
@@ -207,34 +236,18 @@ export default function EmployeeAttendanceDetail() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {isLoading ? (
-                  <tr>
-                    <td colSpan={6} className="p-10 text-center text-gray-400">데이터를 불러오는 중입니다...</td>
-                  </tr>
+                  <tr><td colSpan={6} className="p-10 text-center text-gray-400">데이터를 불러오는 중입니다...</td></tr>
                 ) : records.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="p-10 text-center text-gray-400 bg-gray-50/50">해당 연도에 기록된 출퇴근 내역이 없습니다.</td>
-                  </tr>
+                  <tr><td colSpan={6} className="p-10 text-center text-gray-400 bg-gray-50/50">해당 연도에 기록된 출퇴근 내역이 없습니다.</td></tr>
                 ) : (
                   records.map((record, index) => (
                     <tr key={index} className="hover:bg-gray-50/50 transition-colors">
                       <td className="p-4 font-medium text-gray-800">{record.date}</td>
                       <td className="p-4 text-sm font-medium text-blue-600">{record.clock_in}</td>
-                      <td className="p-4">
-                        {record.clock_in !== '-' ? <DeviceBadge device={record.in_device} /> : null}
-                      </td>
+                      <td className="p-4">{record.clock_in !== '-' ? <DeviceBadge device={record.in_device} /> : null}</td>
                       <td className="p-4 text-sm font-medium text-red-500">{record.clock_out}</td>
-                      <td className="p-4">
-                        {record.clock_out !== '-' ? <DeviceBadge device={record.out_device} /> : null}
-                      </td>
-                      <td className="p-4 text-center">
-                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${
-                          record.status === '근무중' ? 'bg-green-100 text-green-700' : 
-                          record.status === '자동마감' ? 'bg-orange-100 text-orange-700 border border-orange-200' :
-                          'bg-gray-100 text-gray-600'
-                        }`}>
-                          {record.status}
-                        </span>
-                      </td>
+                      <td className="p-4">{record.clock_out !== '-' ? <DeviceBadge device={record.out_device} /> : null}</td>
+                      <td className="p-4 text-center"><StatusBadge status={record.status} /></td>
                     </tr>
                   ))
                 )}
@@ -242,7 +255,7 @@ export default function EmployeeAttendanceDetail() {
             </table>
           </div>
 
-          {/* 📱 [모바일 뷰] 화면이 좁을 때(md 미만)만 보이는 카드 형태 */}
+          {/* 📱 [모바일 뷰] */}
           <div className="block md:hidden divide-y divide-gray-100 max-h-[70vh] overflow-y-auto custom-scrollbar">
             {isLoading ? (
               <div className="p-10 text-center text-gray-400 text-sm">데이터를 불러오는 중입니다...</div>
@@ -251,51 +264,32 @@ export default function EmployeeAttendanceDetail() {
             ) : (
               records.map((record, index) => (
                 <div key={index} className="p-4 hover:bg-gray-50/50 transition-colors flex flex-col gap-3">
-                  
-                  {/* 상단: 날짜 및 상태 배지 */}
                   <div className="flex items-center justify-between">
                     <div className="font-bold text-gray-800 text-base flex items-center gap-2">
                       <Calendar className="w-4 h-4 text-gray-400" />
                       {record.date}
                     </div>
-                    <span className={`shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${
-                      record.status === '근무중' ? 'bg-green-100 text-green-700' : 
-                      record.status === '자동마감' ? 'bg-orange-100 text-orange-700 border border-orange-200' :
-                      'bg-gray-100 text-gray-600'
-                    }`}>
-                      {record.status}
-                    </span>
+                    <StatusBadge status={record.status} />
                   </div>
 
-                  {/* 하단: 출퇴근 시간 및 기기 정보 박스 */}
                   <div className="bg-gray-50 rounded-lg p-3 grid grid-cols-2 gap-3">
                     <div className="flex flex-col gap-1">
                       <span className="text-xs text-gray-500 font-medium">출근</span>
                       <div className="font-bold text-blue-600 text-sm">{record.clock_in}</div>
-                      {record.clock_in !== '-' && (
-                        <div className="mt-0.5">
-                          <DeviceBadge device={record.in_device} />
-                        </div>
-                      )}
+                      {record.clock_in !== '-' && <div className="mt-0.5"><DeviceBadge device={record.in_device} /></div>}
                     </div>
                     <div className="flex flex-col gap-1 border-l border-gray-200 pl-3">
                       <span className="text-xs text-gray-500 font-medium">퇴근</span>
                       <div className="font-bold text-red-500 text-sm">{record.clock_out}</div>
-                      {record.clock_out !== '-' && (
-                        <div className="mt-0.5">
-                          <DeviceBadge device={record.out_device} />
-                        </div>
-                      )}
+                      {record.clock_out !== '-' && <div className="mt-0.5"><DeviceBadge device={record.out_device} /></div>}
                     </div>
                   </div>
-                  
                 </div>
               ))
             )}
           </div>
 
         </div>
-
       </div>
     </main>
   );
