@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { createClient } from "@/utils/supabase/client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Calendar, Clock, Search, Smartphone, Monitor, Building2, Download, X, CheckSquare } from "lucide-react";
+import { ArrowLeft, Calendar, Clock, Search, Smartphone, Monitor, Building2, Download, X, CheckSquare, ChevronRight } from "lucide-react";
 import * as XLSX from "xlsx";
 
 interface EmployeeAttendance {
@@ -33,12 +33,11 @@ const StatusBadge = ({ status }: { status: string }) => {
   return <span className={`shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${style}`}>{status}</span>;
 };
 
-const Avatar = ({ name }: { name: string }) => <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xs md:text-sm shrink-0 group-hover:bg-blue-200 transition-colors">{name[0]}</div>;
+// ⭐️ 아바타 색상을 인디고(Indigo) 테마로 변경
+const Avatar = ({ name }: { name: string }) => <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs md:text-sm shrink-0 group-hover:bg-indigo-200 transition-colors">{name[0]}</div>;
 
 function processLeaves(data: any[], targetDate: string) {
   const map = new Map<string, string>();
-  
-  // ⭐️ 명시적으로 Record 타입을 선언하여 TS가 완벽하게 인식하도록 변경
   const groups: Record<string, any[]> = {};
   
   (data || []).forEach(req => {
@@ -47,7 +46,6 @@ function processLeaves(data: any[], targetDate: string) {
     groups[k].push(req);
   });
 
-  // ⭐️ g가 무조건 배열(any[])임을 명시
   Object.values(groups).forEach((g: any[]) => {
     g.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     const { status, request_type, start_date, end_date, user_id, leave_type } = g[0];
@@ -159,6 +157,7 @@ export default function AttendancePage() {
 
   return (
     <main className="min-h-screen bg-gray-50 p-6">
+      {/* 엑셀 모달은 그대로 유지 */}
       {isExcelModalOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
@@ -210,12 +209,14 @@ export default function AttendancePage() {
         </div>
       )}
 
-      <div className="w-full max-w-[95%] mx-auto space-y-6">
+      <div className="w-full max-w-[1400px] mx-auto space-y-6">
+        
+        {/* ⭐️ 헤더 영역 (인디고 테마 적용) */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <Link href="/" className="p-2 bg-white rounded-full shadow-sm hover:bg-gray-100 transition-colors"><ArrowLeft className="w-5 h-5 text-gray-600" /></Link>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Clock className="w-6 h-6 text-blue-600" /> 전체 직원 출퇴근 명부</h1>
+              <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Clock className="w-6 h-6 text-indigo-600" /> 전체 직원 출퇴근 명부</h1>
               <p className="text-gray-500 text-sm mt-1">팀원들의 당일 출퇴근 현황 및 접속 기기를 확인합니다.</p>
             </div>
           </div>
@@ -228,17 +229,29 @@ export default function AttendancePage() {
           <div className="flex flex-col md:flex-row gap-4 justify-between items-center">
             <div className="flex items-center gap-2 w-full md:w-auto">
               <Calendar className="w-5 h-5 text-gray-400" />
-              <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none" />
+              <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer" />
             </div>
             <div className="relative w-full md:w-64">
               <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input type="text" placeholder="이름 또는 부서 검색..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full border border-gray-200 rounded-lg pl-9 pr-3 py-2 text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none" />
+              <input type="text" placeholder="이름 또는 부서 검색..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full border border-gray-200 rounded-lg pl-9 pr-3 py-2 text-sm text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 outline-none" />
             </div>
           </div>
+          
+          {/* ⭐️ 부서 필터 (인디고 테마 적용) */}
           {!isLoading && groupedList.length > 0 && (
             <div className="pt-2 border-t border-gray-100 flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
               {availableDepts.map(dept => (
-                <button key={dept} onClick={() => setSelectedDept(dept)} className={`px-4 py-1.5 rounded-full text-sm font-bold whitespace-nowrap transition-all ${selectedDept === dept ? "bg-blue-600 text-white shadow-sm ring-2 ring-blue-200" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>{dept}</button>
+                <button 
+                  key={dept} 
+                  onClick={() => setSelectedDept(dept)} 
+                  className={`px-4 py-1.5 rounded-full text-sm font-bold whitespace-nowrap transition-all ${
+                    selectedDept === dept 
+                      ? "bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-200" 
+                      : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                  }`}
+                >
+                  {dept}
+                </button>
               ))}
             </div>
           )}
@@ -254,73 +267,88 @@ export default function AttendancePage() {
               <div key={group.dept} className="space-y-3 animate-in fade-in duration-300">
                 
                 <div className="flex items-center gap-2 px-1">
-                  <Building2 className="w-5 h-5 text-blue-600" />
+                  <Building2 className="w-5 h-5 text-indigo-600" />
                   <h2 className="text-lg font-bold text-gray-800">{group.dept}</h2>
                   <span className="text-xs font-medium text-gray-500 bg-gray-200 px-2.5 py-0.5 rounded-full ml-1">{group.employees.length}명</span>
                 </div>
 
-                {/* 데스크탑 뷰 (tr은 Link 태그로 감쌀 수 없으므로 onClick 유지 + 디버깅 로그 추가) */}
-                <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                  <table className="w-full text-left border-collapse min-w-[900px]">
-                    <thead>
-                      <tr className="bg-gray-50 border-b border-gray-100 text-sm text-gray-500">
-                        <th className="p-4 font-semibold w-[200px]">이름 / 직급</th>
-                        <th className="p-4 font-semibold w-[150px]">출근 시간</th>
-                        <th className="p-4 font-semibold w-[150px]">출근 기기</th>
-                        <th className="p-4 font-semibold w-[150px]">퇴근 시간</th>
-                        <th className="p-4 font-semibold w-[150px]">퇴근 기기</th>
-                        <th className="p-4 font-semibold text-center w-[120px]">상태</th>
+                {/* 🖥️ [PC 뷰] 투톤 테이블 & 전체 행 클릭 지원 */}
+                <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                  <table className="w-full text-sm text-left border-collapse min-w-[900px]">
+                    <thead className="bg-gray-50 text-gray-700 border-b border-gray-200">
+                      <tr className="text-xs uppercase tracking-wider">
+                        <th className="px-6 py-4 font-bold w-[250px] sticky left-0 bg-gray-50 z-10">이름 / 직급</th>
+                        <th className="px-4 py-4 font-bold border-l border-gray-200 bg-blue-50/50 text-blue-800 w-[150px]">출근 시간</th>
+                        <th className="px-4 py-4 font-bold bg-blue-50/50 text-blue-800 w-[150px]">출근 기기</th>
+                        <th className="px-4 py-4 font-bold border-l border-gray-200 bg-red-50/50 text-red-800 w-[150px]">퇴근 시간</th>
+                        <th className="px-4 py-4 font-bold bg-red-50/50 text-red-800 w-[150px]">퇴근 기기</th>
+                        <th className="px-4 py-4 font-bold text-center w-[120px]">상태</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {group.employees.map((emp) => (
-                        <tr key={emp.id} className="hover:bg-blue-50/50 transition-colors group">
-                          {/* ⭐️ 핵심: 이름 영역 전체를 Link 태그로 감싸서 클릭 영역으로 만듦 */}
-                          <td className="p-0">
-                          <Link href={`/attendance/${emp.id}`} className="flex items-center gap-3 p-4 w-full h-full hover:bg-blue-50">
-                            <Avatar name={emp.name} /> 
-                            <div>
-                              <div className="font-bold text-blue-600 group-hover:text-blue-800 transition-colors underline-offset-2 group-hover:underline">{emp.name}</div>
-                              <div className="text-xs text-gray-500">{emp.position}</div>
+                        <tr 
+                          key={emp.id} 
+                          onClick={() => router.push(`/attendance/${emp.id}`)}
+                          className="hover:bg-indigo-50/60 transition-colors group cursor-pointer relative"
+                          title={`${emp.name}님의 출퇴근 상세 보기`}
+                        >
+                          <td className="px-6 py-4 sticky left-0 bg-white group-hover:bg-indigo-50/60 transition-colors border-r border-transparent group-hover:border-indigo-100">
+                            <div className="flex items-center justify-between w-full">
+                              <div className="flex items-center gap-3">
+                                <Avatar name={emp.name} /> 
+                                <div>
+                                  <div className="font-bold text-gray-900 group-hover:text-indigo-700 transition-colors">{emp.name}</div>
+                                  <div className="text-xs text-gray-500">{emp.position}</div>
+                                </div>
+                              </div>
+                              {/* ⭐️ 마우스를 올리면 나타나는 화살표 아이콘 */}
+                              <ChevronRight className="w-4 h-4 text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity transform group-hover:translate-x-1" />
                             </div>
-                          </Link>
                           </td>
-                          <td className="p-4 text-sm font-medium text-gray-800">{emp.clock_in}</td>
-                          <td className="p-4">{emp.clock_in !== '-' && <DeviceBadge device={emp.in_device} />}</td>
-                          <td className="p-4 text-sm font-medium text-gray-800">{emp.clock_out}</td>
-                          <td className="p-4">{emp.clock_out !== '-' && <DeviceBadge device={emp.out_device} />}</td>
-                          <td className="p-4 text-center"><StatusBadge status={emp.status} /></td>
+                          <td className="px-4 py-4 text-blue-600 font-bold border-l border-gray-100">{emp.clock_in}</td>
+                          <td className="px-4 py-4">{emp.clock_in !== '-' && <DeviceBadge device={emp.in_device} />}</td>
+                          <td className="px-4 py-4 text-red-500 font-bold border-l border-gray-100">{emp.clock_out}</td>
+                          <td className="px-4 py-4">{emp.clock_out !== '-' && <DeviceBadge device={emp.out_device} />}</td>
+                          <td className="px-4 py-4 text-center"><StatusBadge status={emp.status} /></td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
 
-                {/* 모바일 뷰 (div 대신 완벽하게 동작하는 Link 태그로 교체) */}
-                <div className="block md:hidden bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden divide-y divide-gray-100">
+                {/* 📱 [모바일 뷰] 투톤 카드 & 카드 전체 클릭 지원 */}
+                <div className="block md:hidden bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden divide-y divide-gray-100">
                   {group.employees.map((emp) => (
                     <Link 
                       href={`/attendance/${emp.id}`} 
                       key={emp.id} 
-                      className="block p-4 hover:bg-blue-50/50 transition-colors cursor-pointer active:bg-blue-50 group"
+                      className="block p-4 hover:bg-indigo-50/60 active:bg-indigo-100 transition-colors flex flex-col gap-4 group"
                     >
-                      <div className="flex flex-col gap-3">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3"><Avatar name={emp.name} /> <div className="font-bold text-gray-800 text-base flex items-center gap-1.5">{emp.name} <span className="text-xs text-gray-500 font-normal">{emp.position}</span></div></div>
-                          <StatusBadge status={emp.status} />
+                      <div className="flex items-center justify-between w-full">
+                        <div className="flex items-center gap-3">
+                          <Avatar name={emp.name} /> 
+                          <div>
+                            <div className="font-bold text-gray-900 text-base group-hover:text-indigo-700 transition-colors">{emp.name}</div>
+                            <div className="text-xs text-gray-500 mt-0.5">{emp.position}</div>
+                          </div>
                         </div>
-                        
-                        <div className="bg-gray-50 rounded-lg p-3 grid grid-cols-2 gap-3">
-                          <div className="flex flex-col gap-1">
-                            <span className="text-xs text-gray-500 font-medium">출근</span>
-                            <div className="font-bold text-gray-800 text-sm">{emp.clock_in}</div>
-                            {emp.clock_in !== '-' && <div className="mt-0.5"><DeviceBadge device={emp.in_device} /></div>}
-                          </div>
-                          <div className="flex flex-col gap-1 border-l border-gray-200 pl-3">
-                            <span className="text-xs text-gray-500 font-medium">퇴근</span>
-                            <div className="font-bold text-gray-800 text-sm">{emp.clock_out}</div>
-                            {emp.clock_out !== '-' && <div className="mt-0.5"><DeviceBadge device={emp.out_device} /></div>}
-                          </div>
+                        <div className="flex items-center gap-2">
+                          <StatusBadge status={emp.status} />
+                          <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-indigo-500 transition-colors" />
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-blue-50/30 rounded-lg p-3 border border-blue-100/50">
+                          <div className="text-xs text-gray-500 font-medium mb-1">출근</div>
+                          <div className="font-bold text-blue-600 text-base">{emp.clock_in}</div>
+                          {emp.clock_in !== '-' && <div className="mt-2"><DeviceBadge device={emp.in_device} /></div>}
+                        </div>
+                        <div className="bg-red-50/30 rounded-lg p-3 border border-red-100/50">
+                          <div className="text-xs text-gray-500 font-medium mb-1">퇴근</div>
+                          <div className="font-bold text-red-500 text-base">{emp.clock_out}</div>
+                          {emp.clock_out !== '-' && <div className="mt-2"><DeviceBadge device={emp.out_device} /></div>}
                         </div>
                       </div>
                     </Link>
