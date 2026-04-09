@@ -57,6 +57,9 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
+  // ⭐️ 탭 상태 추가
+  const [activeTab, setActiveTab] = useState<'leave' | 'overtime'>('leave');
+
   const [selectedLeave, setSelectedLeave] = useState<any>(null);
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
 
@@ -196,220 +199,242 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* ⭐️ 탭 네비게이션 */}
+          <div className="flex border-b border-gray-200">
+            <button
+              className={`pb-4 px-6 text-sm font-bold transition-colors relative flex items-center gap-2 ${
+                activeTab === 'leave' ? 'text-blue-600' : 'text-gray-500 hover:text-gray-800'
+              }`}
+              onClick={() => setActiveTab('leave')}
+            >
+              <Calendar className="w-4 h-4" />
+              휴가 사용 내역
+              <span className={`py-0.5 px-2 rounded-full text-xs font-medium ${activeTab === 'leave' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>
+                {groupedLeaves.length}
+              </span>
+              {activeTab === 'leave' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />}
+            </button>
+
+            <button
+              className={`pb-4 px-6 text-sm font-bold transition-colors relative flex items-center gap-2 ${
+                activeTab === 'overtime' ? 'text-orange-600' : 'text-gray-500 hover:text-gray-800'
+              }`}
+              onClick={() => setActiveTab('overtime')}
+            >
+              <Clock className="w-4 h-4" />
+              초과근무 이력
+              <span className={`py-0.5 px-2 rounded-full text-xs font-medium ${activeTab === 'overtime' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'}`}>
+                {groupedOvertimes.length}
+              </span>
+              {activeTab === 'overtime' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-orange-600" />}
+            </button>
+          </div>
+
+          {/* ⭐️ 탭 콘텐츠 영역 (1단 레이아웃으로 넓게 사용) */}
+          <div className="w-full">
             
             {/* 1. 휴가 신청 내역 */}
-            <section className="space-y-4">
-              <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                <Calendar className="w-5 h-5 text-blue-600" />
-                휴가 사용 내역
-                {(startDate || endDate) && <span className="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-full ml-2">필터됨</span>}
-              </h2>
-              
-              {groupedLeaves.length === 0 ? (
-                <div className="bg-white rounded-xl p-8 text-center text-gray-400 border border-gray-200">
-                  해당 기간의 내역이 없습니다.
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {groupedLeaves.map((group, groupIdx) => (
-                    <div key={groupIdx} className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-                      <div className="bg-gray-50 px-4 py-2 border-b border-gray-100 flex justify-between items-center">
-                        <span className="text-xs font-bold text-gray-500 flex items-center gap-1">
-                          <History className="w-3 h-3" /> 
-                          History Group #{groupIdx + 1}
-                        </span>
-                        {group.length > 1 && <span className="text-[10px] bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-full font-bold">총 {group.length}건의 기록</span>}
-                      </div>
+            {activeTab === 'leave' && (
+              <section className="space-y-4 animate-in fade-in duration-200">
+                {groupedLeaves.length === 0 ? (
+                  <div className="bg-white rounded-xl p-12 text-center text-gray-400 border border-gray-200">
+                    해당 기간의 휴가 내역이 없습니다.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-4">
+                    {groupedLeaves.map((group, groupIdx) => (
+                      <div key={groupIdx} className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                        <div className="bg-gray-50 px-4 py-2 border-b border-gray-100 flex justify-between items-center">
+                          <span className="text-xs font-bold text-gray-500 flex items-center gap-1">
+                            <History className="w-3 h-3" /> 
+                            History Group #{groupIdx + 1}
+                          </span>
+                          {group.length > 1 && <span className="text-[10px] bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-full font-bold">총 {group.length}건의 기록</span>}
+                        </div>
 
-                      <div className="divide-y divide-gray-100">
-                        {group.map((item, idx) => {
-                          const isLatest = idx === 0;
-                          
-                          const sourceOvertimes = Array.isArray(item.overtime_request_ids) 
-                            ? item.overtime_request_ids.map((id: string) => overtimes.find(ot => ot.id === id)).filter(Boolean)
-                            : [];
+                        <div className="divide-y divide-gray-100">
+                          {group.map((item, idx) => {
+                            const isLatest = idx === 0;
+                            const sourceOvertimes = Array.isArray(item.overtime_request_ids) 
+                              ? item.overtime_request_ids.map((id: string) => overtimes.find(ot => ot.id === id)).filter(Boolean)
+                              : [];
 
-                          return (
-                            <div 
-                              key={item.id} 
-                              onClick={() => handleLeaveClick(item)}
-                              className={`p-4 flex gap-4 cursor-pointer transition-colors hover:bg-blue-50/50 ${!isLatest ? 'bg-gray-50/30' : ''}`}
-                            >
-                              <div className="flex flex-col items-center pt-1">
-                                <div className={`w-2 h-2 rounded-full ${isLatest ? 'bg-blue-500 ring-4 ring-blue-100' : 'bg-gray-300'}`}></div>
-                                {idx !== group.length - 1 && <div className="w-0.5 h-full bg-gray-200 mt-1"></div>}
-                              </div>
-
-                              <div className="flex-1">
-                                <div className="flex justify-between items-start mb-1">
-                                  <div className="flex items-center gap-2">
-                                    <span className={`text-xs font-bold px-1.5 py-0.5 rounded border ${
-                                      item.request_type === 'create' ? 'bg-green-50 text-green-700 border-green-200' :
-                                      item.request_type === 'update' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                                      'bg-red-50 text-red-700 border-red-200'
-                                    }`}>
-                                      {getRequestTypeLabel(item.request_type)}
-                                    </span>
-                                    <span className={`text-sm font-bold ${isLatest ? 'text-gray-900' : 'text-gray-500'}`}>
-                                      {item.start_date} ~ {item.end_date}
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    {renderStatus(item.status)}
-                                    <ChevronRight className="w-4 h-4 text-gray-300" />
-                                  </div>
+                            return (
+                              <div 
+                                key={item.id} 
+                                onClick={() => handleLeaveClick(item)}
+                                className={`p-4 flex gap-4 cursor-pointer transition-colors hover:bg-blue-50/50 ${!isLatest ? 'bg-gray-50/30' : ''}`}
+                              >
+                                <div className="flex flex-col items-center pt-1">
+                                  <div className={`w-2 h-2 rounded-full ${isLatest ? 'bg-blue-500 ring-4 ring-blue-100' : 'bg-gray-300'}`}></div>
+                                  {idx !== group.length - 1 && <div className="w-0.5 h-full bg-gray-200 mt-1"></div>}
                                 </div>
 
-                                <div className="text-sm text-gray-600 mb-2">
-                                  <div className="truncate w-full text-xs text-gray-500 mb-1">{item.reason}</div>
-                                  
-                                  {sourceOvertimes.length > 0 && (
-                                    <div className="flex flex-wrap gap-2 mb-1">
-                                      {sourceOvertimes.map((ot: any, i: number) => (
-                                        <div 
-                                          key={i}
-                                          onClick={(e) => {
-                                            e.stopPropagation(); 
-                                            handleOvertimeClick(ot);
-                                          }}
-                                          className="inline-flex items-center gap-1.5 bg-orange-50 border border-orange-200 text-orange-700 px-2 py-1 rounded text-xs font-medium hover:bg-orange-100 hover:border-orange-300 transition-colors group/link"
-                                        >
-                                          <Link2 className="w-3 h-3" />
-                                          <span>원천: {ot.title}</span>
-                                          <ChevronRight className="w-3 h-3 opacity-50 group-hover/link:opacity-100" />
-                                        </div>
-                                      ))}
+                                <div className="flex-1">
+                                  <div className="flex justify-between items-start mb-1">
+                                    <div className="flex items-center gap-2">
+                                      <span className={`text-xs font-bold px-1.5 py-0.5 rounded border ${
+                                        item.request_type === 'create' ? 'bg-green-50 text-green-700 border-green-200' :
+                                        item.request_type === 'update' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                        'bg-red-50 text-red-700 border-red-200'
+                                      }`}>
+                                        {getRequestTypeLabel(item.request_type)}
+                                      </span>
+                                      <span className={`text-sm font-bold ${isLatest ? 'text-gray-900' : 'text-gray-500'}`}>
+                                        {item.start_date} ~ {item.end_date}
+                                        <span className="text-xs font-normal text-gray-400 ml-2">({item.leave_type})</span>
+                                      </span>
                                     </div>
-                                  )}
-
-                                  {item.approver_name && (
-                                    <div className="flex items-center gap-1.5 mt-1 text-xs text-gray-500 bg-gray-100/50 px-2 py-1 rounded w-fit">
-                                      <UserCheck className="w-3 h-3 text-gray-400" />
-                                      <span>결재: <span className="font-medium text-gray-700">{item.approver_name}</span></span>
+                                    <div className="flex items-center gap-2">
+                                      {renderStatus(item.status)}
+                                      <ChevronRight className="w-4 h-4 text-gray-300" />
                                     </div>
-                                  )}
-                                </div>
-
-                                <div className="flex justify-between items-end text-sm">
-                                  <div className="text-[10px] text-gray-400">
-                                    {new Date(item.created_at).toLocaleDateString()} 신청
                                   </div>
-                                  <div className={`font-bold ${item.request_type === 'cancel' ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
-                                    -{Number(item.total_leave_days).toFixed(2)}일
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
 
-            {/* 2. 초과근무 내역 */}
-            <section className="space-y-4">
-              <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                <Clock className="w-5 h-5 text-orange-600" />
-                초과근무 이력
-                {(startDate || endDate) && <span className="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-full ml-2">필터됨</span>}
-              </h2>
-              
-              {groupedOvertimes.length === 0 ? (
-                <div className="bg-white rounded-xl p-8 text-center text-gray-400 border border-gray-200">
-                  해당 기간의 내역이 없습니다.
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {groupedOvertimes.map((group, groupIdx) => (
-                    <div key={groupIdx} className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-                      <div className="bg-gray-50 px-4 py-2 border-b border-gray-100 flex justify-between items-center">
-                        <span className="text-xs font-bold text-gray-500 flex items-center gap-1">
-                          <GitCommit className="w-3 h-3" /> 
-                          History Group #{groupIdx + 1}
-                        </span>
-                        {group.length > 1 && <span className="text-[10px] bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full font-bold">총 {group.length}건의 기록</span>}
-                      </div>
+                                  <div className="text-sm text-gray-600 mb-2">
+                                    <div className="truncate w-full text-sm text-gray-700 mb-2">{item.reason || '-'}</div>
+                                    
+                                    {sourceOvertimes.length > 0 && (
+                                      <div className="flex flex-wrap gap-2 mb-2">
+                                        {sourceOvertimes.map((ot: any, i: number) => (
+                                          <div 
+                                            key={i}
+                                            onClick={(e) => {
+                                              e.stopPropagation(); 
+                                              handleOvertimeClick(ot);
+                                            }}
+                                            className="inline-flex items-center gap-1.5 bg-orange-50 border border-orange-200 text-orange-700 px-2 py-1 rounded text-xs font-medium hover:bg-orange-100 hover:border-orange-300 transition-colors group/link"
+                                          >
+                                            <Link2 className="w-3 h-3" />
+                                            <span>원천: {ot.title}</span>
+                                            <ChevronRight className="w-3 h-3 opacity-50 group-hover/link:opacity-100" />
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
 
-                      <div className="divide-y divide-gray-100">
-                        {group.map((item, idx) => {
-                          const isLatest = idx === 0;
-                          return (
-                            <div 
-                              key={item.id} 
-                              onClick={() => handleOvertimeClick(item)}
-                              className={`p-4 flex gap-4 cursor-pointer transition-colors hover:bg-orange-50/50 ${!isLatest ? 'bg-gray-50/30' : ''}`}
-                            >
-                              <div className="flex flex-col items-center pt-1">
-                                <div className={`w-2 h-2 rounded-full ${isLatest ? 'bg-orange-500 ring-4 ring-orange-100' : 'bg-gray-300'}`}></div>
-                                {idx !== group.length - 1 && <div className="w-0.5 h-full bg-gray-200 mt-1"></div>}
-                              </div>
-
-                              <div className="flex-1">
-                                <div className="flex justify-between items-start mb-1">
-                                  <div className="flex items-center gap-2">
-                                    <span className={`text-xs font-bold px-1.5 py-0.5 rounded border ${
-                                      item.request_type === 'create' ? 'bg-green-50 text-green-700 border-green-200' :
-                                      item.request_type === 'update' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                                      'bg-red-50 text-red-700 border-red-200'
-                                    }`}>
-                                      {getRequestTypeLabel(item.request_type)}
-                                    </span>
-                                    <span className={`text-sm font-bold ${isLatest ? 'text-gray-900' : 'text-gray-500'}`}>
-                                      {item.title}
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    {renderStatus(item.status)}
-                                    <ChevronRight className="w-4 h-4 text-gray-300" />
-                                  </div>
-                                </div>
-
-                                <div className="text-sm text-gray-600 mb-2">
-                                  <div className="text-xs text-gray-500 flex items-center gap-1 mb-1">
-                                    <Calendar className="w-3 h-3" />
-                                    {item.work_date} ({item.start_time.slice(0,5)}~{item.end_time.slice(0,5)})
-                                  </div>
-                                  
-                                  {item.approver_name && (
-                                    <div className="flex items-center gap-1.5 mt-1.5 text-xs text-gray-500 bg-gray-100/50 px-2 py-1 rounded w-fit">
-                                      <UserCheck className="w-3 h-3 text-gray-400" />
-                                      <span>결재: <span className="font-medium text-gray-700">{item.approver_name}</span></span>
-                                    </div>
-                                  )}
-                                </div>
-
-                                {/* ⭐️ 변경된 부분: 인정 일수 및 사용 일수 표시 */}
-                                <div className="flex justify-between items-end text-sm">
-                                  <div className="text-[10px] text-gray-400">
-                                    {new Date(item.created_at).toLocaleDateString()} 신청
-                                  </div>
-                                  <div className="text-right">
-                                    <div className={`font-bold ${item.request_type === 'cancel' ? 'text-gray-400 line-through' : 'text-blue-600'}`}>
-                                      +{Number(Number(item.recognized_hours) / 8).toFixed(2)}일
-                                    </div>
-                                    {Number(item.used_hours) > 0 && (
-                                      <div className="text-xs text-red-500 font-medium mt-0.5">
-                                        사용 -{Number(Number(item.used_hours) / 8).toFixed(2)}일
+                                    {item.approver_name && (
+                                      <div className="flex items-center gap-1.5 text-xs text-gray-500 bg-gray-100/50 px-2 py-1 rounded w-fit">
+                                        <UserCheck className="w-3 h-3 text-gray-400" />
+                                        <span>결재: <span className="font-medium text-gray-700">{item.approver_name}</span></span>
                                       </div>
                                     )}
                                   </div>
-                                </div>
-                                {/* 변경 끝 */}
 
+                                  <div className="flex justify-between items-end text-sm mt-2">
+                                    <div className="text-[10px] text-gray-400">
+                                      {new Date(item.created_at).toLocaleDateString()} 신청
+                                    </div>
+                                    <div className={`font-bold text-base ${item.request_type === 'cancel' ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
+                                      -{Number(item.total_leave_days).toFixed(2)}일
+                                    </div>
+                                  </div>
+                                </div>
                               </div>
-                            </div>
-                          );
-                        })}
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
+
+            {/* 2. 초과근무 내역 */}
+            {activeTab === 'overtime' && (
+              <section className="space-y-4 animate-in fade-in duration-200">
+                {groupedOvertimes.length === 0 ? (
+                  <div className="bg-white rounded-xl p-12 text-center text-gray-400 border border-gray-200">
+                    해당 기간의 초과근무 내역이 없습니다.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-4">
+                    {groupedOvertimes.map((group, groupIdx) => (
+                      <div key={groupIdx} className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                        <div className="bg-gray-50 px-4 py-2 border-b border-gray-100 flex justify-between items-center">
+                          <span className="text-xs font-bold text-gray-500 flex items-center gap-1">
+                            <GitCommit className="w-3 h-3" /> 
+                            History Group #{groupIdx + 1}
+                          </span>
+                          {group.length > 1 && <span className="text-[10px] bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full font-bold">총 {group.length}건의 기록</span>}
+                        </div>
+
+                        <div className="divide-y divide-gray-100">
+                          {group.map((item, idx) => {
+                            const isLatest = idx === 0;
+                            return (
+                              <div 
+                                key={item.id} 
+                                onClick={() => handleOvertimeClick(item)}
+                                className={`p-4 flex gap-4 cursor-pointer transition-colors hover:bg-orange-50/50 ${!isLatest ? 'bg-gray-50/30' : ''}`}
+                              >
+                                <div className="flex flex-col items-center pt-1">
+                                  <div className={`w-2 h-2 rounded-full ${isLatest ? 'bg-orange-500 ring-4 ring-orange-100' : 'bg-gray-300'}`}></div>
+                                  {idx !== group.length - 1 && <div className="w-0.5 h-full bg-gray-200 mt-1"></div>}
+                                </div>
+
+                                <div className="flex-1">
+                                  <div className="flex justify-between items-start mb-1">
+                                    <div className="flex items-center gap-2">
+                                      <span className={`text-xs font-bold px-1.5 py-0.5 rounded border ${
+                                        item.request_type === 'create' ? 'bg-green-50 text-green-700 border-green-200' :
+                                        item.request_type === 'update' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                        'bg-red-50 text-red-700 border-red-200'
+                                      }`}>
+                                        {getRequestTypeLabel(item.request_type)}
+                                      </span>
+                                      <span className={`text-sm font-bold ${isLatest ? 'text-gray-900' : 'text-gray-500'}`}>
+                                        {item.title}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      {renderStatus(item.status)}
+                                      <ChevronRight className="w-4 h-4 text-gray-300" />
+                                    </div>
+                                  </div>
+
+                                  <div className="text-sm text-gray-600 mb-2">
+                                    <div className="text-sm text-gray-700 flex items-center gap-1.5 mb-2">
+                                      <Calendar className="w-4 h-4 text-gray-400" />
+                                      {item.work_date} ({item.start_time.slice(0,5)} ~ {item.end_time.slice(0,5)})
+                                    </div>
+                                    
+                                    {item.approver_name && (
+                                      <div className="flex items-center gap-1.5 text-xs text-gray-500 bg-gray-100/50 px-2 py-1 rounded w-fit">
+                                        <UserCheck className="w-3 h-3 text-gray-400" />
+                                        <span>결재: <span className="font-medium text-gray-700">{item.approver_name}</span></span>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  <div className="flex justify-between items-end text-sm mt-2">
+                                    <div className="text-[10px] text-gray-400">
+                                      {new Date(item.created_at).toLocaleDateString()} 신청
+                                    </div>
+                                    <div className="text-right">
+                                      <div className={`font-bold text-base ${item.request_type === 'cancel' ? 'text-gray-400 line-through' : 'text-blue-600'}`}>
+                                        +{Number(Number(item.recognized_hours) / 8).toFixed(2)}일
+                                      </div>
+                                      {Number(item.used_hours) > 0 && (
+                                        <div className="text-xs text-red-500 font-medium mt-0.5 bg-red-50 px-2 py-0.5 rounded-full inline-block">
+                                          사용완료 -{Number(Number(item.used_hours) / 8).toFixed(2)}일
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
 
           </div>
         </div>
