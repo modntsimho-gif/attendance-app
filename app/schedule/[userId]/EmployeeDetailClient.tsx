@@ -25,7 +25,7 @@ const renderLeaveTypeBadge = (type: string) => {
     bgColor = "bg-blue-50"; textColor = "text-blue-700"; borderColor = "border-blue-200";
   } else if (type.includes('대체휴무')) {
     // 2. 대체휴무 계열 (전일, 반일, 반반일): 오렌지색
-    bgColor = "bg-orange-50"; textColor = "text-orange-700"; borderColor = "border-orange-200";
+    bgColor = "bg-blue-50"; textColor = "text-blue-700"; borderColor = "border-blue-200";
   } else {
     // 3. 그 외 (경조, 공가, 출산휴가 등): 깔끔한 회색
     bgColor = "bg-gray-100"; textColor = "text-gray-700"; borderColor = "border-gray-200";
