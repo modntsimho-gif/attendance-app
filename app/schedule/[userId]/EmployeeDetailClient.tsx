@@ -54,7 +54,6 @@ const groupHistory = (data: any[], idField: string, parentField: string) => {
 export default function EmployeeDetailClient({ profile, leaves, overtimes, allocations }: EmployeeDetailClientProps) {
   const currentYear = new Date().getFullYear();
   
-  // ⭐️ [변경] 연도 선택 대신 기간 조회를 위한 상태 추가 (기본값: 전체 조회)
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
@@ -65,7 +64,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
   const [isOvertimeModalOpen, setIsOvertimeModalOpen] = useState(false);
 
   const { filteredLeaves, filteredOvertimes, currentYearStats } = useMemo(() => {
-    // 1. 기간 필터링 적용
     let leavesList = leaves;
     let overtimesList = overtimes;
 
@@ -78,7 +76,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
       overtimesList = overtimesList.filter(o => o.work_date <= endDate);
     }
 
-    // 2. 올해(Current Year) 기준 연차 통계 계산
     const allocData = allocations.find(a => a.year === currentYear);
     let totalAnnualLeave = allocData ? allocData.total_days : (profile.total_leave_days || 0);
     
@@ -161,7 +158,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
 
               <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto items-end md:items-center">
                 
-                {/* ⭐️ [변경] 기간 조회 필터 UI */}
                 <div className="flex items-center gap-2 bg-white border border-gray-300 rounded-lg px-3 py-2 shadow-sm">
                   <Search className="w-4 h-4 text-gray-400" />
                   <input 
@@ -386,14 +382,24 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                                   )}
                                 </div>
 
+                                {/* ⭐️ 변경된 부분: 인정 일수 및 사용 일수 표시 */}
                                 <div className="flex justify-between items-end text-sm">
                                   <div className="text-[10px] text-gray-400">
                                     {new Date(item.created_at).toLocaleDateString()} 신청
                                   </div>
-                                  <div className={`font-bold ${item.request_type === 'cancel' ? 'text-gray-400 line-through' : 'text-blue-600'}`}>
-                                    +{Number(Number(item.recognized_hours) / 8).toFixed(2)}일
+                                  <div className="text-right">
+                                    <div className={`font-bold ${item.request_type === 'cancel' ? 'text-gray-400 line-through' : 'text-blue-600'}`}>
+                                      +{Number(Number(item.recognized_hours) / 8).toFixed(2)}일
+                                    </div>
+                                    {Number(item.used_hours) > 0 && (
+                                      <div className="text-xs text-red-500 font-medium mt-0.5">
+                                        사용 -{Number(Number(item.used_hours) / 8).toFixed(2)}일
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
+                                {/* 변경 끝 */}
+
                               </div>
                             </div>
                           );
