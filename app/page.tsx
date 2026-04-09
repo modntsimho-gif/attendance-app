@@ -73,8 +73,7 @@ export default async function DashboardPage() {
     });
   }
 
-  // ⭐️ [NEW] 5. 전체 직원 리스트 조회 (위젯용)
-  // role이 'employee'인 직원들만 가져옵니다. (필요시 .eq 부분 제거하면 관리자도 포함됨)
+  // 5. 전체 직원 리스트 조회 (위젯용)
   const { data: employees } = await supabase
     .from("profiles")
     .select("id, name, department, position, avatar_url")
@@ -88,6 +87,7 @@ export default async function DashboardPage() {
       
       // 권한 정보
       role={profile?.role} 
+      isApprover={profile?.is_approver || false} // ⭐️ [NEW] 결재권자 여부 전달
       
       // 기본 연차
       totalLeave={profile?.total_leave_days || 0}
@@ -104,7 +104,7 @@ export default async function DashboardPage() {
       // 결재 대기 건수 (관리자용)
       pendingApprovalCount={realPendingCount}
 
-      // ⭐️ [NEW] 직원 리스트 전달
+      // 직원 리스트 전달
       employees={employees || []}
     />
   );

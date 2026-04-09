@@ -16,11 +16,12 @@ import DashboardWidgets from "@/components/DashboardWidgets";
 import PushManager from "@/components/PushManager"; 
 import { 
   PlusCircle, Clock, PieChart, Calendar, History, List, Inbox, ChevronRight, 
-  UserCog, Settings, Users, AlertTriangle, LogOut, RotateCcw, RefreshCw 
-} from "lucide-react";
+  UserCog, Settings, Users, AlertTriangle, LogOut, RotateCcw, RefreshCw, FileText 
+} from "lucide-react"; // ⭐️ FileText 아이콘 추가
 
 interface DashboardClientProps {
-  userName: string; department: string; role?: string;
+  userName: string; department: string; role?: string; 
+  isApprover?: boolean; // ⭐️ 결재권자 여부 prop 추가
   totalLeave: number; usedLeave: number;
   extraTotalLeave: number; extraUsedLeave: number;
   leaveRequestCount: number; overtimeRequestCount: number; pendingApprovalCount: number;
@@ -59,7 +60,7 @@ const MenuBtn = ({ onClick, icon: Icon, title, isSub = false, count = 0, mainCla
 );
 
 export default function DashboardClient({ 
-  userName, department, role, totalLeave = 0, usedLeave = 0, extraTotalLeave = 0, extraUsedLeave = 0,
+  userName, department, role, isApprover = false, totalLeave = 0, usedLeave = 0, extraTotalLeave = 0, extraUsedLeave = 0,
   leaveRequestCount, overtimeRequestCount, pendingApprovalCount, employees = [] 
 }: DashboardClientProps) {
   const router = useRouter();
@@ -90,7 +91,7 @@ export default function DashboardClient({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       
-      const yestDateStr = getDateStr(-1); // 어제 날짜 문자열
+      const yestDateStr = getDateStr(-1);
       
       const [todayRes, yestRes] = await Promise.all([
         supabase.from('attendance').select('*').eq('user_id', user.id).eq('date', getDateStr()).maybeSingle(),
@@ -106,7 +107,6 @@ export default function DashboardClient({
         }));
       }
       
-      // 👈 로컬스토리지: 사용자가 이미 경고창을 닫았는지 확인
       const isDismissed = localStorage.getItem(`hide_auto_checkout_${yestDateStr}`);
 
       if (yestRes.data?.is_auto_checkout && !isDismissed) {
@@ -125,7 +125,6 @@ export default function DashboardClient({
     getMyCurrentYearStats().then(s => s?.totalLeave !== undefined && setStats(p => ({ ...p, total: s.totalLeave }))).catch(console.error);
   }, [supabase]);
 
-  // 👈 로컬스토리지: 경고창 닫기 버튼 클릭 시 기록 저장
   const handleDismissAutoCheckout = () => {
     localStorage.setItem(`hide_auto_checkout_${getDateStr(-1)}`, 'true');
     setAtt(p => ({...p, autoDate: null}));
@@ -191,7 +190,6 @@ export default function DashboardClient({
               <h3 className="font-bold text-orange-800 text-sm">어제({att.autoDate}) 퇴근 기록이 누락되었습니다.</h3>
               <p className="text-orange-700 text-sm mt-1">시스템에 의해 <strong>{att.autoTime}로 자동 마감</strong> 처리되었습니다.</p>
             </div>
-            {/* 👈 로컬스토리지: 닫기 버튼 클릭 이벤트 연결 */}
             <button onClick={handleDismissAutoCheckout} className="text-orange-400 hover:text-orange-600 p-1">✕</button>
           </div>
         )}
@@ -278,10 +276,27 @@ export default function DashboardClient({
               </div>
             </div>
 
-            <button onClick={() => toggleM('approval', true)} className="w-full bg-gray-800 hover:bg-gray-900 text-white p-4 rounded-xl shadow-lg flex items-center justify-between group">
-              <div className="flex items-center gap-3"><div className="p-2 bg-gray-700 rounded-lg"><Inbox className="w-5 h-5 text-yellow-400" /></div><div className="text-sm font-bold">결재함 열기</div></div>
-              {pendingApprovalCount > 0 && <div className="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full animate-pulse">{pendingApprovalCount}</div>}
-            </button>
+            {/* ⭐️ 결재함 및 결재권자 전용 메뉴 */}
+            <div className="space-y-3">
+              <button onClick={() => toggleM('approval', true)} className="w-full bg-gray-800 hover:bg-gray-900 text-white p-4 rounded-xl shadow-lg flex items-center justify-between group">
+                <div className="flex items-center gap-3"><div className="p-2 bg-gray-700 rounded-lg"><Inbox className="w-5 h-5 text-yellow-400" /></div><div className="text-sm font-bold">결재함 열기</div></div>
+                {pendingApprovalCount > 0 && <div className="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full animate-pulse">{pendingApprovalCount}</div>}
+              </button>
+
+              {/* 결재권자에게만 보이는 결재내역 이동 버튼 */}
+              {isApprover && (
+                <Link href="/admin/approvals" className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between group transition-colors">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-white rounded-lg shadow-sm"><FileText className="w-5 h-5 text-slate-600" /></div>
+                    <div className="text-left">
+                      <div className="text-sm font-bold">결재권자별 결재내역</div>
+                      <div className="text-xs text-slate-500 mt-0.5">모든 결재 이력 조회</div>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-slate-600 transition-colors" />
+                </Link>
+              )}
+            </div>
 
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
               <div className="p-4 border-b border-gray-100 bg-gray-50/50"><h3 className="font-bold text-gray-800 flex items-center gap-2"><UserCog className="w-4 h-4 text-gray-500" />내 근태 관리</h3></div>
