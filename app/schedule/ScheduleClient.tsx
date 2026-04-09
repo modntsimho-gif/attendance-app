@@ -3,8 +3,8 @@
 import { useState, useMemo, useEffect } from "react";
 import { createClient } from "@/utils/supabase/client";
 import Link from "next/link";
-import { useRouter } from "next/navigation"; // ⭐️ useRouter 추가
-import { ArrowLeft, Users, Calendar, PieChart, Search, Building2, ChevronRight } from "lucide-react"; // ⭐️ ChevronRight 아이콘 추가
+import { useRouter } from "next/navigation";
+import { ArrowLeft, Users, Calendar, PieChart, Search, Building2, ChevronRight } from "lucide-react";
 
 interface ScheduleClientProps {
   employees: any[];
@@ -20,7 +20,7 @@ export default function ScheduleClient({
   overtimes 
 }: ScheduleClientProps) {
   const supabase = createClient();
-  const router = useRouter(); // ⭐️ 라우터 초기화
+  const router = useRouter();
   const currentYear = new Date().getFullYear();
   
   const [selectedYear, setSelectedYear] = useState(currentYear);
@@ -51,6 +51,7 @@ export default function ScheduleClient({
     const yearStr = selectedYear.toString();
 
     return employees.map((emp) => {
+      // 🟢 1. 일반 연차 계산
       const alloc = allocations.find(a => a.user_id === emp.id && a.year === selectedYear);
       let totalAnnual = 0;
       if (alloc) {
@@ -81,25 +82,34 @@ export default function ScheduleClient({
         }
       }
 
-      const generatedOvertimeHours = overtimes
+      // 🟢 2. 보상 휴가(연차 외 휴가) 계산 로직 수정
+      let totalExtra = overtimes
         .filter(o => 
           o.user_id === emp.id && 
           o.status === 'approved' && 
           o.request_type !== 'cancel' && 
           o.work_date?.startsWith(yearStr)
         )
-        .reduce((sum, o) => sum + Number(o.recognized_hours || 0), 0);
-      
-      const totalExtra = generatedOvertimeHours / 8; 
+        .reduce((sum, o) => sum + Number(o.recognized_days || (o.recognized_hours ? o.recognized_hours / 8 : 0)), 0);
 
-      const usedExtra = overtimes
-        .filter(o => 
-          o.user_id === emp.id && 
-          o.status === 'approved' && 
-          o.request_type !== 'cancel' && 
-          o.work_date?.startsWith(yearStr)
+      let usedExtra = leaves
+        .filter(l => 
+          l.user_id === emp.id && 
+          l.status === 'approved' && 
+          l.request_type !== 'cancel' && 
+          l.leave_type?.includes('대체휴무') && // ⭐️ 대체휴무 키워드로 필터링
+          l.start_date?.startsWith(yearStr)
         )
-        .reduce((sum, o) => sum + Number(o.used_hours || 0), 0) / 8;
+        .reduce((sum, l) => sum + Number(l.total_leave_days || 0), 0);
+
+      // 현재 연도일 경우 프로필의 누적 데이터와 비교하여 보정
+      if (selectedYear === currentYear) {
+        const profileExtraTotal = Number(emp.extra_leave_days || 0);
+        const profileExtraUsed = Number(emp.extra_used_leave_days || 0);
+        
+        if (profileExtraTotal > totalExtra) totalExtra = profileExtraTotal;
+        if (profileExtraUsed > usedExtra) usedExtra = profileExtraUsed;
+      }
 
       return {
         ...emp,
@@ -248,7 +258,7 @@ export default function ScheduleClient({
                         </th>
                         <th colSpan={4} className="px-6 py-4 text-center border-l border-gray-200 bg-orange-50/50 text-orange-800">
                           <div className="flex items-center justify-center gap-1">
-                            <PieChart className="w-4 h-4" /> {selectedYear}년 연차 외 휴가 (보상)
+                            <PieChart className="w-4 h-4" /> 누적 연차 외 휴가 (보상)
                           </div>
                         </th>
                       </tr>
@@ -290,7 +300,6 @@ export default function ScheduleClient({
                                       <div className="text-xs text-gray-500">{emp.position || "직급없음"}</div>
                                   </div>
                                 </div>
-                                {/* ⭐️ 마우스를 올리면 나타나는 화살표 아이콘 */}
                                 <ChevronRight className="w-4 h-4 text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity transform group-hover:translate-x-1" />
                               </div>
                             </td>
@@ -350,7 +359,6 @@ export default function ScheduleClient({
                               </div>
                             </div>
                           </div>
-                          {/* ⭐️ 우측 화살표 아이콘 */}
                           <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-indigo-500 transition-colors" />
                         </div>
 
@@ -385,7 +393,7 @@ export default function ScheduleClient({
 
                           <div className="bg-orange-50/30 rounded-lg p-3 border border-orange-100/50">
                             <div className="flex items-center gap-1.5 text-orange-800 font-bold text-sm mb-3">
-                              <PieChart className="w-4 h-4" /> 연차 외 휴가 (보상)
+                              <PieChart className="w-4 h-4" /> 누적 연차 외 휴가 (보상)
                             </div>
                             <div className="grid grid-cols-3 gap-2 text-center mb-3">
                               <div>
