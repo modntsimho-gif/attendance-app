@@ -87,7 +87,8 @@ export default async function DashboardPage() {
       
       // 권한 정보
       role={profile?.role} 
-      isApprover={profile?.is_approver || false} // ⭐️ [NEW] 결재권자 여부 전달
+      // ⭐️ [수정] 부서가 "외주"일 경우에도 결재권자 권한 부여
+      isApprover={profile?.is_approver || profile?.department === "외주" || false} 
       
       // 기본 연차
       totalLeave={profile?.total_leave_days || 0}

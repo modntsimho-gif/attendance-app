@@ -67,13 +67,12 @@ export default function ApproverHistoryClient({ sortedDepts, grouped, empSortMap
                       </div>
                     </summary>
 
-                    {/* ⭐️ 카드형 결재 내역 리스트 (캡처 화면 스타일 적용) */}
+                    {/* ⭐️ 카드형 결재 내역 리스트 */}
                     <div className="p-4 sm:p-5 bg-gray-50/50 flex flex-col gap-4">
                       {empLines.map((line: any) => {
-                        const isApproved = line.status === "approved";
                         const reqType = line.req.request_type?.toLowerCase() || 'create';
                         
-                        // 배지 스타일 분기
+                        // 1. 신청/취소/변경 배지 스타일
                         let badgeText = '신청';
                         let badgeClass = 'bg-green-50 text-green-600';
                         if (reqType === 'cancel') {
@@ -82,6 +81,21 @@ export default function ApproverHistoryClient({ sortedDepts, grouped, empSortMap
                         } else if (reqType === 'update') {
                           badgeText = '변경';
                           badgeClass = 'bg-orange-50 text-orange-600';
+                        }
+
+                        // 2. ⭐️ 승인/반려/대기 상태 텍스트 및 컬러 분기
+                        let statusText = '대기';
+                        let statusColor = 'text-gray-500';
+                        let hoverArrowColor = 'group-hover/card:text-gray-600';
+
+                        if (line.status === 'approved') {
+                          statusText = '승인';
+                          statusColor = 'text-blue-600';
+                          hoverArrowColor = 'group-hover/card:text-blue-500';
+                        } else if (line.status === 'rejected') {
+                          statusText = '반려';
+                          statusColor = 'text-red-500';
+                          hoverArrowColor = 'group-hover/card:text-red-500';
                         }
 
                         return (
@@ -124,10 +138,10 @@ export default function ApproverHistoryClient({ sortedDepts, grouped, empSortMap
                                     </span>
                                   </div>
 
-                                  {/* 우측 승인/반려 상태 텍스트 */}
-                                  <div className={`flex items-center text-sm font-bold shrink-0 ${isApproved ? 'text-blue-600' : 'text-red-500'}`}>
-                                    {isApproved ? '승인' : '반려'} 
-                                    <ChevronRight className="w-4 h-4 ml-0.5 text-gray-400 group-hover/card:translate-x-1 group-hover/card:text-blue-500 transition-all" />
+                                  {/* ⭐️ 우측 승인/반려/대기 상태 텍스트 */}
+                                  <div className={`flex items-center text-sm font-bold shrink-0 ${statusColor}`}>
+                                    {statusText} 
+                                    <ChevronRight className={`w-4 h-4 ml-0.5 text-gray-400 group-hover/card:translate-x-1 transition-all ${hoverArrowColor}`} />
                                   </div>
                                 </div>
 
@@ -149,8 +163,11 @@ export default function ApproverHistoryClient({ sortedDepts, grouped, empSortMap
 
                                 {/* 하단 결재일자 및 부가정보 */}
                                 <div className="mt-4 flex items-center justify-between">
+                                  {/* ⭐️ 대기 중일 때는 '결재 대기 중'으로 표시 */}
                                   <div className="text-xs text-gray-400">
-                                    {line.decided_at ? `${new Date(line.decided_at).toLocaleDateString('ko-KR')} 결재완료` : '-'}
+                                    {line.status === 'pending' 
+                                      ? '⏳ 결재 대기 중' 
+                                      : (line.decided_at ? `${new Date(line.decided_at).toLocaleDateString('ko-KR')} 결재완료` : '-')}
                                   </div>
                                   {/* 휴가일 경우 우측 하단에 연차 종류 표시 */}
                                   {line.isLeave && (
@@ -173,7 +190,7 @@ export default function ApproverHistoryClient({ sortedDepts, grouped, empSortMap
         })
       ) : (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-16 text-center">
-          <p className="text-gray-500 font-medium">아직 처리한 결재 내역이 없습니다.</p>
+          <p className="text-gray-500 font-medium">조회된 결재 내역이 없습니다.</p>
         </div>
       )}
 

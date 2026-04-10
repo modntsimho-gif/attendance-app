@@ -31,7 +31,7 @@ export default async function ApproverHistoryPage({
           title, is_holiday, plan_details,
           profiles (id, name, department, position, avatar_url) 
         )
-      `).eq("approver_id", approverId).in("status", ["approved", "rejected"]).order("decided_at", { ascending: false }),
+      `).eq("approver_id", approverId).in("status", ["approved", "rejected","pending"]).order("decided_at", { ascending: false }),
     supabase.from("sort_settings").select("*")
   ]);
 
