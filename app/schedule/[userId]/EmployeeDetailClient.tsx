@@ -341,18 +341,26 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                     <tr>
                       <th className="px-4 py-3 text-center w-[80px] min-w-[80px]">상태</th>
                       <th className="px-4 py-3 w-[240px] min-w-[240px]">근무 일자</th>
-                      <th className="px-4 py-3 text-right w-[100px] min-w-[100px]">발생일수</th>
-                      <th className="px-4 py-3 text-right w-[100px] min-w-[100px]">사용일수</th>
-                      <th className="px-4 py-3 min-w-[300px]">제목 / 사유</th>
+                      <th className="px-4 py-3 text-right w-[90px] min-w-[90px]">발생일수</th>
+                      <th className="px-4 py-3 text-right w-[90px] min-w-[90px]">사용일수</th>
+                      {/* ⭐️ 잔여일(시간) 컬럼 추가 */}
+                      <th className="px-4 py-3 text-right w-[120px] min-w-[120px]">잔여일(시간)</th>
+                      <th className="px-4 py-3 min-w-[250px]">제목 / 사유</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {groupedOvertimes.length === 0 ? (
-                      <tr><td colSpan={5} className="px-4 py-12 text-center text-gray-400">데이터가 없습니다.</td></tr>
+                      <tr><td colSpan={6} className="px-4 py-12 text-center text-gray-400">데이터가 없습니다.</td></tr>
                     ) : (
                       groupedOvertimes.map((group, groupIdx) => {
                         const latest = group[0];
                         const history = group.slice(1);
+                        
+                        // ⭐️ 잔여 시간 및 잔여일 계산 로직 추가
+                        const recognizedHours = Number(latest.recognized_hours || 0);
+                        const usedHours = Number(latest.used_hours || 0);
+                        const remainingHours = recognizedHours - usedHours;
+                        const remainingDays = remainingHours / 8;
 
                         return (
                           <React.Fragment key={groupIdx}>
@@ -362,15 +370,29 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                                 {latest.work_date} <span className="text-gray-500 font-normal ml-1">({latest.start_time.slice(0,5)}~{latest.end_time.slice(0,5)})</span>
                               </td>
                               <td className={`px-4 py-3.5 text-right font-bold ${latest.request_type === 'cancel' ? 'text-gray-300 line-through' : 'text-blue-600'}`}>
-                                +{Number(Number(latest.recognized_hours) / 8).toFixed(2)}일
+                                +{(recognizedHours / 8).toFixed(2)}일
                               </td>
                               <td className="px-4 py-3.5 text-right">
-                                {Number(latest.used_hours) > 0 ? (
-                                  <span className="text-red-500 font-bold bg-red-50 px-2 py-0.5 rounded text-xs">-{Number(Number(latest.used_hours) / 8).toFixed(2)}일</span>
+                                {usedHours > 0 ? (
+                                  <span className="text-red-500 font-bold bg-red-50 px-2 py-0.5 rounded text-xs">
+                                    -{(usedHours / 8).toFixed(2)}일
+                                  </span>
                                 ) : <span className="text-gray-300">-</span>}
+                              </td>
+                              {/* ⭐️ 잔여일 및 잔여시간 렌더링 */}
+                              <td className="px-4 py-3.5 text-right">
+                                {latest.request_type === 'cancel' ? (
+                                  <span className="text-gray-300">-</span>
+                                ) : (
+                                  <div className="flex flex-col items-end">
+                                    <span className="font-bold text-gray-900">{remainingDays.toFixed(2)}일</span>
+                                    <span className="text-[11px] text-gray-500 font-medium">({remainingHours}h)</span>
+                                  </div>
+                                )}
                               </td>
                               <td className="px-4 py-3.5 text-gray-700 truncate max-w-[350px]" title={latest.title}>{latest.title}</td>
                             </tr>
+                            {/* 과거 이력 (History) */}
                             {history.map((pastItem) => (
                               <tr key={pastItem.id} className="bg-gray-50/50 text-gray-400 text-xs hover:bg-gray-100/50 cursor-pointer transition-colors" onClick={() => handleOvertimeClick(pastItem)}>
                                 <td className="px-4 py-2 text-center opacity-60">{renderStatusBadge(pastItem.status)}</td>
@@ -378,6 +400,7 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                                   <div className="flex items-center gap-1"><CornerDownRight className="w-3 h-3" /><span>{getRequestTypeLabel(pastItem.request_type)}</span></div>
                                 </td>
                                 <td className="px-4 py-2 text-right">+{Number(Number(pastItem.recognized_hours) / 8).toFixed(2)}일</td>
+                                <td className="px-4 py-2 text-right">-</td>
                                 <td className="px-4 py-2 text-right">-</td>
                                 <td className="px-4 py-2 truncate max-w-[350px]">{pastItem.title}</td>
                               </tr>
@@ -469,6 +492,12 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                   groupedOvertimes.map((group, groupIdx) => {
                     const latest = group[0];
                     const history = group.slice(1);
+                    
+                    // ⭐️ 모바일용 잔여 시간 계산
+                    const recognizedHours = Number(latest.recognized_hours || 0);
+                    const usedHours = Number(latest.used_hours || 0);
+                    const remainingHours = recognizedHours - usedHours;
+                    const remainingDays = remainingHours / 8;
 
                     return (
                       <div key={groupIdx} className="p-4 hover:bg-gray-50 active:bg-gray-100 transition-colors cursor-pointer" onClick={() => handleOvertimeClick(latest)}>
@@ -483,15 +512,21 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                         <div className="text-sm text-gray-700 line-clamp-2 mb-3">{latest.title}</div>
                         
                         <div className="flex justify-between items-end">
-                          <div className="flex-1">
-                            {Number(latest.used_hours) > 0 && (
+                          <div className="flex-1 flex flex-wrap gap-1.5">
+                            {usedHours > 0 && (
                               <span className="text-red-500 font-bold bg-red-50 px-1.5 py-0.5 rounded text-[10px]">
-                                사용 -{Number(Number(latest.used_hours) / 8).toFixed(2)}일
+                                사용 -{(usedHours / 8).toFixed(2)}일
+                              </span>
+                            )}
+                            {/* ⭐️ 잔여일/시간 뱃지 추가 (취소 상태가 아닐 때만 표시) */}
+                            {latest.request_type !== 'cancel' && (
+                              <span className="text-indigo-600 font-bold bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded text-[10px]">
+                                잔여 {remainingDays.toFixed(2)}일 ({remainingHours}h)
                               </span>
                             )}
                           </div>
                           <div className={`font-bold text-base shrink-0 ml-2 ${latest.request_type === 'cancel' ? 'text-gray-300 line-through' : 'text-blue-600'}`}>
-                            +{Number(Number(latest.recognized_hours) / 8).toFixed(2)}일
+                            +{(recognizedHours / 8).toFixed(2)}일
                           </div>
                         </div>
 
