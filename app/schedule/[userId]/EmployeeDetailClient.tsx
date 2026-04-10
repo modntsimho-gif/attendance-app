@@ -290,7 +290,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                             <tr className="hover:bg-blue-50/30 cursor-pointer transition-colors" onClick={() => handleLeaveClick(latest)}>
                               <td className="px-4 py-3.5 text-center">{renderStatusBadge(latest.status)}</td>
                               
-                              {/* ⭐️ PC 뷰: 여기서 함수를 호출하도록 수정했습니다! */}
                               <td className="px-4 py-3.5 font-medium text-gray-900">
                                 {renderLeaveTypeBadge(latest.leave_type)}
                               </td>
@@ -334,7 +333,7 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                 </table>
               )}
 
-              {/* 2. 초과근무 테이블 (PC) - 기존과 동일 */}
+              {/* 2. 초과근무 테이블 (PC) */}
               {activeTab === 'overtime' && (
                 <table className="w-full text-sm text-left whitespace-nowrap">
                   <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-medium">
@@ -343,7 +342,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                       <th className="px-4 py-3 w-[240px] min-w-[240px]">근무 일자</th>
                       <th className="px-4 py-3 text-right w-[90px] min-w-[90px]">발생일수</th>
                       <th className="px-4 py-3 text-right w-[90px] min-w-[90px]">사용일수</th>
-                      {/* ⭐️ 잔여일(시간) 컬럼 추가 */}
                       <th className="px-4 py-3 text-right w-[120px] min-w-[120px]">잔여일(시간)</th>
                       <th className="px-4 py-3 min-w-[250px]">제목 / 사유</th>
                     </tr>
@@ -356,7 +354,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                         const latest = group[0];
                         const history = group.slice(1);
                         
-                        // ⭐️ 잔여 시간 및 잔여일 계산 로직 추가
                         const recognizedHours = Number(latest.recognized_hours || 0);
                         const usedHours = Number(latest.used_hours || 0);
                         const remainingHours = recognizedHours - usedHours;
@@ -379,7 +376,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                                   </span>
                                 ) : <span className="text-gray-300">-</span>}
                               </td>
-                              {/* ⭐️ 잔여일 및 잔여시간 렌더링 */}
                               <td className="px-4 py-3.5 text-right">
                                 {latest.request_type === 'cancel' ? (
                                   <span className="text-gray-300">-</span>
@@ -390,7 +386,15 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                                   </div>
                                 )}
                               </td>
-                              <td className="px-4 py-3.5 text-gray-700 truncate max-w-[350px]" title={latest.title}>{latest.title}</td>
+                              {/* ⭐️ PC 뷰: 제목과 사유 분리 렌더링 */}
+                              <td className="px-4 py-3.5 max-w-[350px]">
+                                <div className="font-medium text-gray-900 truncate" title={latest.title}>
+                                  {latest.title}
+                                </div>
+                                <div className="text-xs text-gray-500 truncate mt-0.5" title={latest.reason}>
+                                  {latest.reason}
+                                </div>
+                              </td>
                             </tr>
                             {/* 과거 이력 (History) */}
                             {history.map((pastItem) => (
@@ -402,7 +406,11 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                                 <td className="px-4 py-2 text-right">+{Number(Number(pastItem.recognized_hours) / 8).toFixed(2)}일</td>
                                 <td className="px-4 py-2 text-right">-</td>
                                 <td className="px-4 py-2 text-right">-</td>
-                                <td className="px-4 py-2 truncate max-w-[350px]">{pastItem.title}</td>
+                                {/* ⭐️ PC 뷰 과거 이력: 제목과 사유 함께 표시 */}
+                                <td className="px-4 py-2 truncate max-w-[350px]" title={`${pastItem.title} / ${pastItem.reason}`}>
+                                  <span className="text-gray-600">{pastItem.title}</span>
+                                  <span className="text-gray-400 ml-1">/ {pastItem.reason}</span>
+                                </td>
                               </tr>
                             ))}
                           </React.Fragment>
@@ -435,10 +443,7 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                       <div key={groupIdx} className="p-4 hover:bg-gray-50 active:bg-gray-100 transition-colors cursor-pointer" onClick={() => handleLeaveClick(latest)}>
                         <div className="flex justify-between items-start mb-2">
                           <div className="flex flex-wrap items-center gap-1.5">
-                            
-                            {/* ⭐️ 모바일 뷰: 여기서도 함수를 호출하도록 수정했습니다! */}
                             {renderLeaveTypeBadge(latest.leave_type)}
-                            
                             <span className="font-bold text-gray-900 text-sm">{latest.start_date} ~ {latest.end_date}</span>
                           </div>
                           <div className="shrink-0 ml-2">{renderStatusBadge(latest.status)}</div>
@@ -484,7 +489,7 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                 )
               )}
 
-              {/* 2. 초과근무 리스트 (모바일) - 기존과 동일 */}
+              {/* 2. 초과근무 리스트 (모바일) */}
               {activeTab === 'overtime' && (
                 groupedOvertimes.length === 0 ? (
                   <div className="p-8 text-center text-gray-400 text-sm">데이터가 없습니다.</div>
@@ -493,7 +498,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                     const latest = group[0];
                     const history = group.slice(1);
                     
-                    // ⭐️ 모바일용 잔여 시간 계산
                     const recognizedHours = Number(latest.recognized_hours || 0);
                     const usedHours = Number(latest.used_hours || 0);
                     const remainingHours = recognizedHours - usedHours;
@@ -509,7 +513,11 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                           <div className="shrink-0 ml-2">{renderStatusBadge(latest.status)}</div>
                         </div>
                         
-                        <div className="text-sm text-gray-700 line-clamp-2 mb-3">{latest.title}</div>
+                        {/* ⭐️ 모바일 뷰: 제목과 사유 분리 렌더링 */}
+                        <div className="mb-3">
+                          <div className="text-sm font-medium text-gray-900 line-clamp-1">{latest.title}</div>
+                          <div className="text-xs text-gray-500 line-clamp-1 mt-0.5">{latest.reason}</div>
+                        </div>
                         
                         <div className="flex justify-between items-end">
                           <div className="flex-1 flex flex-wrap gap-1.5">
@@ -518,7 +526,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                                 사용 -{(usedHours / 8).toFixed(2)}일
                               </span>
                             )}
-                            {/* ⭐️ 잔여일/시간 뱃지 추가 (취소 상태가 아닐 때만 표시) */}
                             {latest.request_type !== 'cancel' && (
                               <span className="text-indigo-600 font-bold bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded text-[10px]">
                                 잔여 {remainingDays.toFixed(2)}일 ({remainingHours}h)
@@ -538,7 +545,10 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                                 <div className="flex items-center gap-1">
                                   <CornerDownRight className="w-3 h-3" />
                                   <span className="bg-gray-100 px-1 rounded text-[10px]">{getRequestTypeLabel(pastItem.request_type)}</span>
-                                  <span className="truncate max-w-[120px]">{pastItem.title}</span>
+                                  {/* ⭐️ 모바일 뷰 과거 이력: 제목과 사유 함께 표시 */}
+                                  <span className="truncate max-w-[180px]">
+                                    {pastItem.title} <span className="opacity-70">/ {pastItem.reason}</span>
+                                  </span>
                                 </div>
                                 <div>+{Number(Number(pastItem.recognized_hours) / 8).toFixed(2)}일</div>
                               </div>
