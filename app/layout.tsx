@@ -4,6 +4,7 @@ import "./globals.css";
 import AutoLogoutProvider from "@/components/AutoLogoutProvider";
 import PWAInstallGuard from "@/components/PWAInstallGuard"; // 👈 1. 가드 컴포넌트 불러오기
 import Script from "next/script";
+import { Analytics } from "@vercel/analytics/react"; 
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -47,6 +48,8 @@ export default function RootLayout({
             {children}
           </PWAInstallGuard>
         </AutoLogoutProvider>
+
+        <Analytics />
       </body>
     </html>
   );
