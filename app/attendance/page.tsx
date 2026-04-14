@@ -16,7 +16,26 @@ interface EmployeeAttendance {
 const toDateStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const getLocalToday = () => toDateStr(new Date());
 const formatTime = (t?: string) => t ? new Date(t).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '-';
-const getStatus = (leaveMap: Map<string, string>, uid: string, rec: any) => leaveMap.get(uid) || (rec?.clock_in ? (rec.clock_out ? (rec.is_auto_checkout ? '자동마감' : '퇴근완료') : '근무중') : '미출근');
+
+// ⭐️ 상태 판별 로직: 근무중 우선, 퇴근 후 휴가 표시, 주말 휴무 처리
+const getStatus = (leaveMap: Map<string, string>, uid: string, rec: any, dateStr: string) => {
+  const hasLeave = leaveMap.has(uid);
+  const leaveType = hasLeave ? leaveMap.get(uid)! : '';
+  const d = new Date(dateStr);
+  const isWeekend = d.getDay() === 0 || d.getDay() === 6; // 0: 일요일, 6: 토요일
+
+  if (rec?.clock_in) {
+    if (!rec.clock_out) {
+      return '근무중'; // 출근만 한 상태면 무조건 근무중
+    } else {
+      // 퇴근까지 완료한 상태면 휴가(반차 등) 우선, 없으면 퇴근완료/자동마감
+      return hasLeave ? leaveType : (rec.is_auto_checkout ? '자동마감' : '퇴근완료');
+    }
+  } else {
+    // 출근 기록이 없는 상태면 휴가 우선, 없으면 평일(미출근)/주말(휴무)
+    return hasLeave ? leaveType : (isWeekend ? '휴무' : '미출근');
+  }
+};
 
 const DeviceBadge = ({ device }: { device?: string | null }) => {
   if (!device) return <span className="text-gray-300 text-xs">-</span>;
@@ -28,12 +47,19 @@ const DeviceBadge = ({ device }: { device?: string | null }) => {
   );
 };
 
+// ⭐️ 휴무 상태 스타일 추가
 const StatusBadge = ({ status }: { status: string }) => {
-  const style = status === '근무중' ? 'bg-green-100 text-green-700' : status === '자동마감' ? 'bg-orange-100 text-orange-700 border border-orange-200' : status === '퇴근완료' ? 'bg-gray-100 text-gray-600' : status === '미출근' ? 'bg-red-50 text-red-500' : 'bg-pink-50 text-pink-600 border border-pink-100';
+  const style = 
+    status === '근무중' ? 'bg-green-100 text-green-700' : 
+    status === '자동마감' ? 'bg-orange-100 text-orange-700 border border-orange-200' : 
+    status === '퇴근완료' ? 'bg-gray-100 text-gray-600' : 
+    status === '미출근' ? 'bg-red-50 text-red-500' : 
+    status === '휴무' ? 'bg-gray-50 text-gray-400 border border-gray-200' :
+    'bg-pink-50 text-pink-600 border border-pink-100';
+    
   return <span className={`shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${style}`}>{status}</span>;
 };
 
-// ⭐️ 아바타 색상을 인디고(Indigo) 테마로 변경
 const Avatar = ({ name }: { name: string }) => <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs md:text-sm shrink-0 group-hover:bg-indigo-200 transition-colors">{name[0]}</div>;
 
 function processLeaves(data: any[], targetDate: string) {
@@ -96,7 +122,16 @@ export default function AttendancePage() {
 
         const merged: EmployeeAttendance[] = (pRes.data || []).map(prof => {
           const rec = aRes.data?.find(x => x.user_id === prof.id);
-          return { ...prof, department: prof.department || '소속 없음', position: prof.position || '직급미지정', clock_in: formatTime(rec?.clock_in), clock_out: formatTime(rec?.clock_out), status: getStatus(leaveMap, prof.id, rec), in_device: rec?.in_device, out_device: rec?.out_device };
+          return { 
+            ...prof, 
+            department: prof.department || '소속 없음', 
+            position: prof.position || '직급미지정', 
+            clock_in: formatTime(rec?.clock_in), 
+            clock_out: formatTime(rec?.clock_out), 
+            status: getStatus(leaveMap, prof.id, rec, selectedDate), // ⭐️ 날짜 파라미터 추가
+            in_device: rec?.in_device, 
+            out_device: rec?.out_device 
+          };
         });
 
         const depts = Array.from(new Set(merged.map(x => x.department))).sort((x, y) => (dSorts[x] ?? 99) - (dSorts[y] ?? 99));
@@ -136,7 +171,8 @@ export default function AttendancePage() {
             _id: prof.id, _dept: prof.department || '소속 없음',
             '날짜': dateStr, '부서': prof.department || '소속 없음', '이름': prof.name, '직급': prof.position || '직급미지정',
             '출근시간': formatTime(rec?.clock_in), '퇴근시간': formatTime(rec?.clock_out),
-            '상태': getStatus(dailyLeaveMap, prof.id, rec), '출근기기': rec?.in_device || '-', '퇴근기기': rec?.out_device || '-'
+            '상태': getStatus(dailyLeaveMap, prof.id, rec, dateStr), // ⭐️ 엑셀 출력 시에도 동일한 로직 적용
+            '출근기기': rec?.in_device || '-', '퇴근기기': rec?.out_device || '-'
           };
         }).sort((x, y) => (dSorts[x._dept] ?? 99) - (dSorts[y._dept] ?? 99) || (eSorts[x._id] ?? 99) - (eSorts[y._id] ?? 99))
           .forEach(({ _id, _dept, ...item }) => excelData.push(item));
@@ -157,7 +193,6 @@ export default function AttendancePage() {
 
   return (
     <main className="min-h-screen bg-gray-50 p-6">
-      {/* 엑셀 모달은 그대로 유지 */}
       {isExcelModalOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
@@ -211,7 +246,6 @@ export default function AttendancePage() {
 
       <div className="w-full max-w-[1400px] mx-auto space-y-6">
         
-        {/* ⭐️ 헤더 영역 (인디고 테마 적용) */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <Link href="/" className="p-2 bg-white rounded-full shadow-sm hover:bg-gray-100 transition-colors"><ArrowLeft className="w-5 h-5 text-gray-600" /></Link>
@@ -237,7 +271,6 @@ export default function AttendancePage() {
             </div>
           </div>
           
-          {/* ⭐️ 부서 필터 (인디고 테마 적용) */}
           {!isLoading && groupedList.length > 0 && (
             <div className="pt-2 border-t border-gray-100 flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
               {availableDepts.map(dept => (
@@ -272,7 +305,6 @@ export default function AttendancePage() {
                   <span className="text-xs font-medium text-gray-500 bg-gray-200 px-2.5 py-0.5 rounded-full ml-1">{group.employees.length}명</span>
                 </div>
 
-                {/* 🖥️ [PC 뷰] 투톤 테이블 & 전체 행 클릭 지원 */}
                 <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                   <table className="w-full text-sm text-left border-collapse min-w-[900px]">
                     <thead className="bg-gray-50 text-gray-700 border-b border-gray-200">
@@ -302,7 +334,6 @@ export default function AttendancePage() {
                                   <div className="text-xs text-gray-500">{emp.position}</div>
                                 </div>
                               </div>
-                              {/* ⭐️ 마우스를 올리면 나타나는 화살표 아이콘 */}
                               <ChevronRight className="w-4 h-4 text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity transform group-hover:translate-x-1" />
                             </div>
                           </td>
@@ -317,7 +348,6 @@ export default function AttendancePage() {
                   </table>
                 </div>
 
-                {/* 📱 [모바일 뷰] 투톤 카드 & 카드 전체 클릭 지원 */}
                 <div className="block md:hidden bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden divide-y divide-gray-100">
                   {group.employees.map((emp) => (
                     <Link 
