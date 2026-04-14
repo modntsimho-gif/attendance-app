@@ -130,9 +130,10 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
               )}
               <div className="flex items-center bg-white border border-gray-200 rounded-lg px-3 py-2 shadow-sm w-full sm:w-auto">
                 <Search className="w-4 h-4 text-gray-400 mr-2 shrink-0" />
-                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="text-sm outline-none text-gray-700 bg-transparent w-full" />
+                {/* ⭐️ 텍스트 색상(text-gray-900)과 배경색(bg-white) 명시적 지정 */}
+                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="text-sm outline-none text-gray-900 bg-white w-full" />
                 <span className="text-gray-300 mx-2">~</span>
-                <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="text-sm outline-none text-gray-700 bg-transparent w-full" />
+                <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="text-sm outline-none text-gray-900 bg-white w-full" />
               </div>
             </div>
           </div>
@@ -181,7 +182,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
               ) : (
                 <table className="w-full text-sm text-left whitespace-nowrap">
                   <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-medium">
-                    {/* ⭐️ 초과근무: 공휴일 위치 이동 (총 근무시간과 발생일수 사이) */}
                     <tr>
                       <th className="px-4 py-3 text-center w-[80px]">상태</th>
                       <th className="px-4 py-3 text-center w-[80px]">신청유형</th>
@@ -206,7 +206,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                             <td className="px-4 py-3.5 text-center">{renderRequestTypeBadge(latest.request_type)}</td>
                             <td className="px-4 py-3.5 font-bold">{latest.work_date} <span className="text-gray-500 font-normal ml-1">({latest.start_time.slice(0,5)}~{latest.end_time.slice(0,5)})</span></td>
                             <td className="px-4 py-3.5 text-right font-medium text-gray-900">{Number(latest.total_hours).toFixed(1)}h</td>
-                            {/* ⭐️ 공휴일 뱃지 이동 */}
                             <td className="px-4 py-3.5 text-center">{renderHolidayBadge(latest.is_holiday)}</td>
                             <td className={`px-4 py-3.5 text-right font-bold ${latest.request_type === 'cancel' ? 'text-gray-300 line-through' : 'text-blue-600'}`}>+{(rec / 8).toFixed(2)}일</td>
                             <td className="px-4 py-3.5 text-right">{used > 0 ? <span className="text-red-500 font-bold bg-red-50 px-2 py-0.5 rounded text-xs">-{(used / 8).toFixed(2)}일</span> : <span className="text-gray-300">-</span>}</td>
@@ -220,7 +219,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                               <td className="px-4 py-2 opacity-60"><div className="flex items-center justify-center gap-1"><CornerDownRight className="w-3 h-3" />{renderRequestTypeBadge(h.request_type)}</div></td>
                               <td className="px-4 py-2 opacity-60">{h.work_date}</td>
                               <td className="px-4 py-2 text-right opacity-60">{Number(h.total_hours).toFixed(1)}h</td>
-                              {/* ⭐️ 과거 이력 공휴일 뱃지 이동 */}
                               <td className="px-4 py-2 text-center opacity-60">{renderHolidayBadge(h.is_holiday)}</td>
                               <td className="px-4 py-2 text-right opacity-60">+{Number(Number(h.recognized_hours) / 8).toFixed(2)}일</td>
                               <td className="px-4 py-2 text-right opacity-60">-</td>

@@ -45,7 +45,6 @@ export default function ApproverHistoryClient({ sortedDepts, grouped, empSortMap
   const [selectedLeave, setSelectedLeave] = useState<any | null>(null);
   const [selectedOvertime, setSelectedOvertime] = useState<any | null>(null);
   
-  // ⭐️ 상태 관리: 단일 날짜 대신 시작일/종료일로 변경
   const [weekOffset, setWeekOffset] = useState(0);
   const [searchName, setSearchName] = useState("");
   const [searchStartDate, setSearchStartDate] = useState("");
@@ -53,7 +52,6 @@ export default function ApproverHistoryClient({ sortedDepts, grouped, empSortMap
 
   const formatTime = (timeStr?: string) => timeStr ? timeStr.substring(0, 5) : '';
 
-  // ⭐️ 기간 필터링 로직 적용
   const { filteredData, weekStart, weekEnd } = useMemo(() => {
     const { start: wStart, end: wEnd } = getWeekRange(weekOffset);
     const isCustomDateRange = searchStartDate || searchEndDate;
@@ -61,12 +59,10 @@ export default function ApproverHistoryClient({ sortedDepts, grouped, empSortMap
     const data = sortedDepts.map(dept => {
       const employees = Object.values(grouped[dept])
         .filter(emp => {
-          // 1. 기안자 이름 필터링
           if (!searchName) return true;
           return emp.requester.name.includes(searchName);
         })
         .map(emp => {
-          // 2. 날짜 범위 필터링
           const filteredLines = emp.lines.filter(line => {
             if (!line.req.created_at) return false;
             const d = new Date(line.req.created_at);
@@ -86,7 +82,6 @@ export default function ApproverHistoryClient({ sortedDepts, grouped, empSortMap
               }
               return isValid;
             } else {
-              // 특정 기간이 없으면 주간 범위로 매칭
               return time >= wStart.getTime() && time <= wEnd.getTime();
             }
           });
@@ -109,10 +104,10 @@ export default function ApproverHistoryClient({ sortedDepts, grouped, empSortMap
   return (
     <div className="space-y-6">
       
-      {/* ⭐️ 상단 종합 필터 영역 */}
+      {/* 상단 종합 필터 영역 */}
       <div className="flex flex-col xl:flex-row items-center justify-between gap-4 bg-white p-4 rounded-xl shadow-sm border border-gray-200">
         
-        {/* 1. 주간 이동 컨트롤러 */}
+        {/* 주간 이동 컨트롤러 */}
         <div className="flex items-center gap-2">
           <button 
             onClick={() => setWeekOffset(prev => prev - 1)} 
@@ -149,33 +144,35 @@ export default function ApproverHistoryClient({ sortedDepts, grouped, empSortMap
           </button>
         </div>
 
-        {/* 2. 기안자 & 기간 검색 */}
+        {/* 기안자 & 기간 검색 */}
         <div className="flex flex-wrap items-center justify-center gap-2 w-full xl:w-auto">
           <div className="relative flex-1 min-w-[120px] max-w-[160px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            {/* ⭐️ 텍스트 색상(text-gray-900)과 배경색(bg-white) 명시적 지정 */}
             <input 
               type="text" 
               placeholder="기안자 검색" 
               value={searchName}
               onChange={(e) => setSearchName(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              className="w-full pl-9 pr-3 py-2 text-sm text-gray-900 bg-white placeholder:text-gray-400 border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
             />
           </div>
           
-          {/* ⭐️ 기간 선택 (Start ~ End) */}
+          {/* 기간 선택 (Start ~ End) */}
           <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2 py-1 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500">
+            {/* ⭐️ 날짜 입력창 텍스트 색상 명시적 지정 */}
             <input 
               type="date" 
               value={searchStartDate}
               onChange={(e) => setSearchStartDate(e.target.value)}
-              className="w-[115px] px-1 py-1 text-sm bg-transparent focus:outline-none text-gray-600"
+              className="w-[115px] px-1 py-1 text-sm text-gray-900 bg-white focus:outline-none"
             />
             <span className="text-gray-400 text-sm">~</span>
             <input 
               type="date" 
               value={searchEndDate}
               onChange={(e) => setSearchEndDate(e.target.value)}
-              className="w-[115px] px-1 py-1 text-sm bg-transparent focus:outline-none text-gray-600"
+              className="w-[115px] px-1 py-1 text-sm text-gray-900 bg-white focus:outline-none"
             />
           </div>
 
