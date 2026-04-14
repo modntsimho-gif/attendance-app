@@ -14,9 +14,10 @@ interface EmployeeProfile {
 
 interface AttendanceRecord {
   date: string;
+  dayOfWeek: string;
   clock_in: string | null;
   clock_out: string | null;
-  status: string; // ⭐️ 휴가 타입(연차, 반차 등)이 들어갈 수 있도록 string으로 변경
+  status: string;
   in_device?: string | null;
   out_device?: string | null;
 }
@@ -36,19 +37,20 @@ function DeviceBadge({ device }: { device?: string | null }) {
   );
 }
 
-// 🏷️ 상태 배지 (메인 페이지와 동일한 스타일 적용)
+// 🏷️ 상태 배지
 const StatusBadge = ({ status }: { status: string }) => {
   const style = 
     status === '근무중' ? 'bg-green-100 text-green-700' : 
     status === '자동마감' ? 'bg-orange-100 text-orange-700 border border-orange-200' : 
     status === '퇴근완료' ? 'bg-gray-100 text-gray-600' : 
     status === '미출근' ? 'bg-red-50 text-red-500' : 
-    'bg-pink-50 text-pink-600 border border-pink-100'; // 휴가(연차, 반차 등) 스타일
+    status === '휴무' ? 'bg-gray-50 text-gray-400 border border-gray-200' : 
+    'bg-pink-50 text-pink-600 border border-pink-100'; 
     
   return <span className={`shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${style}`}>{status}</span>;
 };
 
-// 🌴 [NEW] 특정 직원의 휴가 데이터를 날짜별로 매핑하는 함수
+// 🌴 휴가 데이터 매핑 함수
 function processUserLeaves(data: any[]) {
   const map = new Map<string, string>();
   const groups: Record<string, any[]> = {};
@@ -64,7 +66,6 @@ function processUserLeaves(data: any[]) {
     const { status, request_type, start_date, end_date, leave_type } = g[0];
     
     if (status === 'approved' && request_type !== 'cancel') {
-      // 시작일과 종료일 사이의 모든 날짜를 맵에 저장
       const start = new Date(start_date.substring(0, 10) + 'T00:00:00');
       const end = new Date(end_date.substring(0, 10) + 'T00:00:00');
       
@@ -90,7 +91,6 @@ export default function EmployeeAttendanceDetail() {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // 1️⃣ 연도 드롭다운 목록 생성
   useEffect(() => {
     const fetchYearRange = async () => {
       try {
@@ -120,7 +120,6 @@ export default function EmployeeAttendanceDetail() {
     if (userId) fetchYearRange();
   }, [userId, currentYear, supabase]);
 
-  // 2️⃣ 선택한 연도의 상세 데이터 및 휴가 조회
   useEffect(() => {
     const fetchDetailData = async () => {
       setIsLoading(true);
@@ -128,7 +127,6 @@ export default function EmployeeAttendanceDetail() {
         const startDate = `${selectedYear}-01-01`;
         const endDate = `${selectedYear}-12-31`;
 
-        // ⭐️ 프로필, 출퇴근 기록, 휴가 기록을 병렬로 한 번에 가져옵니다.
         const [ { data: profileData }, { data: attendanceData }, { data: leaveData } ] = await Promise.all([
           supabase.from('profiles').select('name, department, position').eq('id', userId).single(),
           supabase.from('attendance').select('date, clock_in, clock_out, is_auto_checkout, in_device, out_device').eq('user_id', userId).gte('date', startDate).lte('date', endDate),
@@ -136,32 +134,55 @@ export default function EmployeeAttendanceDetail() {
         ]);
 
         setProfile(profileData);
-
-        // 휴가 데이터를 날짜별로 매핑 (예: '2026-04-06' -> '연차')
         const leaveMap = processUserLeaves(leaveData || []);
 
-        // ⭐️ 출퇴근 기록이 있는 날짜 + 휴가를 쓴 날짜를 모두 모아서 중복 제거 후 내림차순 정렬
-        const allDates = new Set<string>();
-        (attendanceData || []).forEach(a => allDates.add(a.date));
-        Array.from(leaveMap.keys()).forEach(d => {
-          if (d >= startDate && d <= endDate) allDates.add(d);
-        });
-        const sortedDates = Array.from(allDates).sort((a, b) => b.localeCompare(a));
+        const today = new Date();
+        const localTodayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        
+        let endLimitDateStr = `${selectedYear}-12-31`;
+        if (selectedYear === currentYear.toString()) {
+          endLimitDateStr = localTodayStr; 
+        }
 
-        // 최종 데이터 배열 생성
-        const formattedRecords: AttendanceRecord[] = sortedDates.map(dateStr => {
+        const allDates: string[] = [];
+        const startD = new Date(`${selectedYear}-01-01T00:00:00`);
+        const endD = new Date(`${endLimitDateStr}T00:00:00`);
+        
+        for (let d = new Date(startD); d <= endD; d.setDate(d.getDate() + 1)) {
+          allDates.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+        }
+        
+        allDates.sort((a, b) => b.localeCompare(a));
+
+        const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+
+        const formattedRecords: AttendanceRecord[] = allDates.map(dateStr => {
           const record = attendanceData?.find(a => a.date === dateStr);
           
-          // ⭐️ 상태 결정: 휴가가 있으면 휴가 최우선, 없으면 출퇴근 기록으로 판단
+          const d = new Date(dateStr);
+          const dayOfWeek = dayNames[d.getDay()];
+          const isWeekend = d.getDay() === 0 || d.getDay() === 6; 
+
+          // ⭐️ 상태 판별 로직: 퇴근 시 휴가 상태 복구
           let status = '';
-          if (leaveMap.has(dateStr)) {
-            status = leaveMap.get(dateStr)!;
+          const hasLeave = leaveMap.has(dateStr);
+          const leaveType = hasLeave ? leaveMap.get(dateStr)! : '';
+
+          if (record?.clock_in) {
+            if (!record.clock_out) {
+              status = '근무중'; // 출근만 한 상태
+            } else {
+              // 퇴근까지 완료한 상태
+              status = hasLeave ? leaveType : (record.is_auto_checkout ? '자동마감' : '퇴근완료');
+            }
           } else {
-            status = record?.clock_in ? (record.clock_out ? (record.is_auto_checkout ? '자동마감' : '퇴근완료') : '근무중') : '미출근';
+            // 출근 기록이 없는 상태
+            status = hasLeave ? leaveType : (isWeekend ? '휴무' : '미출근');
           }
 
           return {
             date: dateStr,
+            dayOfWeek,
             clock_in: record?.clock_in ? new Date(record.clock_in).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '-',
             clock_out: record?.clock_out ? new Date(record.clock_out).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '-',
             status,
@@ -179,7 +200,7 @@ export default function EmployeeAttendanceDetail() {
     };
 
     if (userId && selectedYear) fetchDetailData();
-  }, [userId, selectedYear, supabase]);
+  }, [userId, selectedYear, currentYear, supabase]);
 
   return (
     <main className="min-h-screen bg-gray-50 p-6">
@@ -226,7 +247,7 @@ export default function EmployeeAttendanceDetail() {
             <table className="w-full text-left border-collapse min-w-[800px]">
               <thead className="sticky top-0 bg-gray-50 shadow-sm z-10">
                 <tr className="border-b border-gray-100 text-sm text-gray-500">
-                  <th className="p-4 font-semibold w-[120px]">날짜</th>
+                  <th className="p-4 font-semibold w-[110px]">날짜</th>
                   <th className="p-4 font-semibold w-[120px]">출근 시간</th>
                   <th className="p-4 font-semibold w-[120px]">출근 기기</th>
                   <th className="p-4 font-semibold w-[120px]">퇴근 시간</th>
@@ -242,7 +263,12 @@ export default function EmployeeAttendanceDetail() {
                 ) : (
                   records.map((record, index) => (
                     <tr key={index} className="hover:bg-gray-50/50 transition-colors">
-                      <td className="p-4 font-medium text-gray-800">{record.date}</td>
+                      <td className="p-4 font-medium text-gray-800">
+                        {record.date}
+                        <span className={`ml-1 text-sm ${record.dayOfWeek === '토' ? 'text-blue-500' : record.dayOfWeek === '일' ? 'text-red-500' : 'text-gray-500'}`}>
+                          ({record.dayOfWeek})
+                        </span>
+                      </td>
                       <td className="p-4 text-sm font-medium text-blue-600">{record.clock_in}</td>
                       <td className="p-4">{record.clock_in !== '-' ? <DeviceBadge device={record.in_device} /> : null}</td>
                       <td className="p-4 text-sm font-medium text-red-500">{record.clock_out}</td>
@@ -268,6 +294,9 @@ export default function EmployeeAttendanceDetail() {
                     <div className="font-bold text-gray-800 text-base flex items-center gap-2">
                       <Calendar className="w-4 h-4 text-gray-400" />
                       {record.date}
+                      <span className={`text-sm font-medium ${record.dayOfWeek === '토' ? 'text-blue-500' : record.dayOfWeek === '일' ? 'text-red-500' : 'text-gray-500'}`}>
+                        ({record.dayOfWeek})
+                      </span>
                     </div>
                     <StatusBadge status={record.status} />
                   </div>
