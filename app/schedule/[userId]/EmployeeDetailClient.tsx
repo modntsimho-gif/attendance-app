@@ -276,7 +276,7 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                         <div className="flex flex-wrap items-center gap-1.5">
                           {renderRequestTypeBadge(latest.request_type)}
                           {renderHolidayBadge(latest.is_holiday)}
-                          <span className="font-bold text-sm">{latest.work_date}</span>
+                          <span className="font-bold text-sm text-gray-900 bg-white">{latest.work_date}</span>
                           <span className="text-xs text-gray-500">({latest.start_time.slice(0,5)}~{latest.end_time.slice(0,5)}, {Number(latest.total_hours).toFixed(1)}h)</span>
                         </div>
                         <div className="shrink-0 ml-2">{renderStatusBadge(latest.status)}</div>
