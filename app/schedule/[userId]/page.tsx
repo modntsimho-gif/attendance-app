@@ -24,11 +24,12 @@ export default async function EmployeeDetailPage({ params }: PageProps) {
       .select(`
         *,
         approval_lines (
+          step_order,  
           status,
           updated_at,
           profiles ( name )
         )
-      `) // ⭐️ [수정됨] overtime_requests ( title ) 조인 삭제
+      `)
       .eq("user_id", userId)
       .order("start_date", { ascending: false }),
 
@@ -38,6 +39,7 @@ export default async function EmployeeDetailPage({ params }: PageProps) {
       .select(`
         *,
         approval_lines (
+          step_order, 
           status,
           updated_at,
           profiles ( name )
@@ -53,7 +55,6 @@ export default async function EmployeeDetailPage({ params }: PageProps) {
       .eq("user_id", userId)
       .order("year", { ascending: false })
   ]);
-
   if (profileRes.error || !profileRes.data) {
     return notFound();
   }

@@ -21,12 +21,12 @@ export default async function ApproverHistoryPage({
     supabase.from("approval_lines").select(`
         id, status, decided_at, comment,
         leave_requests ( 
-          id, leave_type, start_date, end_date, start_time, end_time, reason, handover_notes, 
+          id, created_at,leave_type, start_date, end_date, start_time, end_time, reason, handover_notes, 
           request_type, original_leave_request_id, overtime_request_ids,
           profiles (id, name, department, position, avatar_url) 
         ),
         overtime_requests ( 
-          id, work_date, start_time, end_time, reason, location, total_hours, 
+          id, created_at,work_date, start_time, end_time, reason, location, total_hours, 
           request_type, original_overtime_request_id, 
           title, is_holiday, plan_details,
           profiles (id, name, department, position, avatar_url) 
