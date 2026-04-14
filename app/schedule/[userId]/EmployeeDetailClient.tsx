@@ -244,7 +244,7 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                   return (
                     <div key={i} className="p-4 hover:bg-gray-50 active:bg-gray-100 transition-colors cursor-pointer" onClick={() => { setSelectedLeave(latest); setIsLeaveModalOpen(true); }}>
                       <div className="flex justify-between items-start mb-2">
-                        <div className="flex flex-wrap items-center gap-1.5">{renderRequestTypeBadge(latest.request_type)}{renderLeaveTypeBadge(latest.leave_type)}<span className="font-bold text-sm">{latest.start_date} ~ {latest.end_date}</span></div>
+                        <div className="flex flex-wrap items-center gap-1.5">{renderRequestTypeBadge(latest.request_type)}{renderLeaveTypeBadge(latest.leave_type)}<span className="font-bold text-sm text-gray-900 bg-white">{latest.start_date} ~ {latest.end_date}</span></div>
                         <div className="shrink-0 ml-2">{renderStatusBadge(latest.status)}</div>
                       </div>
                       <div className="text-sm text-gray-600 line-clamp-2 mb-2">{latest.reason || '사유 없음'}</div>
@@ -281,7 +281,7 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                         </div>
                         <div className="shrink-0 ml-2">{renderStatusBadge(latest.status)}</div>
                       </div>
-                      <div className="mb-2"><div className="text-sm font-medium line-clamp-1">{latest.title}</div><div className="text-xs text-gray-500 line-clamp-1 mt-0.5">{latest.reason}</div></div>
+                      <div className="mb-2"><div className="text-sm font-medium line-clamp-1 text-gray-900 bg-white">{latest.title}</div><div className="text-xs text-gray-500 line-clamp-1 mt-0.5">{latest.reason}</div></div>
                       <div className="bg-gray-50 rounded p-2 mb-3 border border-gray-100">{renderApprovers(latest.approval_lines)}</div>
                       <div className="flex justify-between items-end">
                         <div className="flex-1 flex flex-wrap gap-1.5">
