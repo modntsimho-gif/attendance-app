@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { X, Clock, Users, Plus, Trash2, CheckCircle2, XCircle, Bookmark, Save, ArrowDownToLine, Calculator, AlertCircle, RefreshCw, FileInput, FilePenLine, FileX2, Calendar as CalendarIcon, ChevronRight } from "lucide-react";
+import { X, Clock, Users, Plus, Trash2, CheckCircle2, XCircle, Bookmark, Save, ArrowDownToLine, Calculator, AlertCircle, RefreshCw, FileInput, FilePenLine, FileX2, Calendar as CalendarIcon, ChevronRight, FileText } from "lucide-react";
 import { submitOvertimeRequest } from "@/app/actions/overtime";
 import { getApprovers } from "@/app/actions/user";
 import { getSavedLines, saveLine, deleteLine } from "@/app/actions/approval-line";
@@ -74,6 +74,9 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
   const [recognizedHours, setRecognizedHours] = useState(0); 
   const [recognizedDays, setRecognizedDays] = useState("0.00"); 
 
+  // ⭐️ 영수증(사용된 연차 내역) 데이터를 담을 상태 추가
+  const [usageRecords, setUsageRecords] = useState<any[]>([]);
+
   // 1. 초기 데이터 로드
   useEffect(() => {
     if (!isOpen) { setIsApproverSelectOpen(false); setIsLineManagerOpen(false); setEditingApproverIndex(null); return; }
@@ -93,6 +96,73 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
       }
       if (initialData.plan_details) setPlanRows(safeParsePlan(initialData.plan_details));
 
+      // ⭐️ 상세 조회 시 이 초과근무를 사용한 연차 내역(영수증) + 과거 데이터(풀백) 불러오기
+      Promise.all([
+        supabase.from("leave_overtime_usage")
+          .select(`
+            id,
+            used_hours,
+            leave_requests (
+              id,
+              leave_type,
+              start_date,
+              end_date,
+              status,
+              request_type
+            )
+          `)
+          .eq("overtime_request_id", initialData.id),
+        // 과거 데이터 풀백: JSONB 배열 검색 시 반드시 문자열(Stringified JSON)로 넘겨야 합니다!
+        supabase.from("leave_requests")
+          .select(`
+            id,
+            leave_type,
+            start_date,
+            end_date,
+            status,
+            request_type,
+            total_leave_days,
+            deducted_hours,
+            overtime_request_ids
+          `)
+          .contains("overtime_request_ids", JSON.stringify([initialData.id]))
+      ]).then(([usageRes, legacyRes]) => {
+        const usages = usageRes.data || [];
+        const legacies = legacyRes.data || [];
+        
+        // 이미 맵핑 테이블에 존재하는 연차 ID 추출 (중복 방지)
+        const mappedLeaveIds = new Set(usages.map((u: any) => u.leave_requests?.id));
+        
+        // ⭐️ 수정됨: 취소되거나 반려된 과거 연차 내역은 리스트에서 완전히 제외합니다.
+        const fallbackUsages = legacies
+          .filter((leave: any) => 
+            !mappedLeaveIds.has(leave.id) && 
+            leave.status !== 'cancelled' && 
+            leave.status !== 'rejected' && 
+            leave.request_type !== 'cancel'
+          )
+          .map((leave: any) => ({
+            id: `fallback-${leave.id}`,
+            used_hours: leave.deducted_hours || (leave.total_leave_days * 8), // 과거 데이터는 총 차감 시간으로 추정
+            is_legacy: true, // 과거 기록임을 표시하는 플래그
+            leave_requests: {
+              id: leave.id,
+              leave_type: leave.leave_type,
+              start_date: leave.start_date,
+              end_date: leave.end_date,
+              status: leave.status,
+              request_type: leave.request_type
+            }
+          }));
+
+        // 최신 날짜순으로 정렬하여 상태에 저장
+        setUsageRecords([...usages, ...fallbackUsages].sort((a: any, b: any) => {
+          const dateA = a.leave_requests?.start_date ? new Date(a.leave_requests.start_date).getTime() : 0;
+          const dateB = b.leave_requests?.start_date ? new Date(b.leave_requests.start_date).getTime() : 0;
+          return dateB - dateA;
+        }));
+      });
+
       supabase.from("approval_lines").select("*").eq("overtime_request_id", initialData.id).order("step_order", { ascending: true })
         .then(async ({ data: lines }) => {
           if (!lines) return;
@@ -108,7 +178,7 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
       const todayStr = new Date().toISOString().split('T')[0];
       setWorkDate(todayStr); setIsHoliday(new Date().getDay() === 0); setTitle(`초과근무신청서_${todayStr}`);
       setStartTime(""); setEndTime(""); setLocation(""); setReason(""); setTotalHours("0.0"); setRecognizedHours(0); setRecognizedDays("0.00");
-      setEditingApproverIndex(null); setRequestType("create"); setSelectedOriginalOtId(""); setApprovedOvertimes([]); setOriginalOtForView(null);
+      setEditingApproverIndex(null); setRequestType("create"); setSelectedOriginalOtId(""); setApprovedOvertimes([]); setOriginalOtForView(null); setUsageRecords([]);
     }
   }, [isOpen, isViewMode, initialData, supabase]);
 
@@ -363,6 +433,72 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
                     <p className="text-[10px] text-blue-400 mt-1">* 2시간 단위 인정 / 1일=8시간</p>
                   </div>
                 </div>
+
+                {/* ⭐️ 추가된 부분: 잔여 시간 및 사용된 연차 내역 (상세 조회 시에만 표시) */}
+                {isViewMode && (
+                  <div className="mt-6 p-4 border border-gray-200 rounded-lg bg-gray-50">
+                    <div className="flex items-center justify-between mb-3">
+                      <label className="block text-sm font-bold text-gray-800 flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-blue-600" /> 사용된 연차 내역
+                      </label>
+                      <div className="text-xs font-bold px-3 py-1.5 rounded-full border bg-white text-gray-700 border-gray-200 shadow-sm">
+                        현재 남은 시간: <span className="text-blue-600 text-sm">{(initialData?.recognized_hours || 0) - (initialData?.used_hours || 0)}h</span> <span className="text-gray-400 font-normal">/ 총 {initialData?.recognized_hours || 0}h</span>
+                      </div>
+                    </div>
+                    
+                    {usageRecords.length > 0 ? (
+                      <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                        {usageRecords.map(usage => {
+                          const leave = usage.leave_requests;
+                          if (!leave) return null;
+                          
+                          let statusText = "";
+                          let statusClass = "";
+                          
+                          if (leave.status === 'cancelled' || leave.request_type === 'cancel') {
+                            statusText = "취소됨 (환불)";
+                            statusClass = "bg-gray-100 text-gray-500 line-through";
+                          } else if (leave.status === 'rejected') {
+                            statusText = "반려됨";
+                            statusClass = "bg-red-100 text-red-600";
+                          } else {
+                            statusText = "승인됨";
+                            statusClass = "bg-blue-100 text-blue-700";
+                          }
+
+                          return (
+                            <div key={usage.id} className="bg-white p-3 border rounded-lg shadow-sm flex justify-between items-center hover:border-blue-300 transition-colors">
+                              <div>
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-xs font-bold bg-gray-100 px-2 py-0.5 rounded text-gray-700">{leave.leave_type}</span>
+                                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${statusClass}`}>{statusText}</span>
+                                </div>
+                                <div className="text-sm font-medium text-gray-800 flex items-center gap-1">
+                                  <CalendarIcon className="w-3.5 h-3.5 text-gray-500" /> {leave.start_date} ~ {leave.end_date}
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <div className={`text-sm font-bold ${leave.status === 'cancelled' || leave.request_type === 'cancel' ? 'text-gray-400 line-through' : 'text-blue-600'}`}>
+                                  {leave.status === 'cancelled' || leave.request_type === 'cancel' ? `+${usage.used_hours}h 반환` : `-${usage.used_hours}h 차감`}
+                                </div>
+                                {/* ⭐️ 센스 추가: 과거 데이터일 경우 안내 문구 표시 */}
+                                {usage.is_legacy && (
+                                  <div className="text-[10px] text-gray-400 mt-0.5 font-medium">
+                                    (과거 기록)
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-gray-500 bg-white p-4 rounded-lg border border-dashed text-center">
+                        아직 이 초과근무를 사용한 연차 내역이 없습니다.
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="mt-6">
                   <label className={labelBase}>근무 장소</label>
