@@ -158,20 +158,37 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
     initializeData();
   }, [isOpen, isViewMode, initialData, supabase]);
 
-  // 2. 변경/취소 시 원본 연차 로드
+  // 2. 탭(신청/변경/취소) 변경 시 폼 완벽 초기화 및 원본 연차 로드
   useEffect(() => {
-    if (!isViewMode && (requestType === 'update' || requestType === 'cancel') && isOpen) {
+    if (isViewMode || !isOpen) return;
+
+    // ⭐️ 탭이 바뀔 때마다 이전에 선택/입력했던 모든 폼 데이터를 깨끗하게 비워줍니다.
+    setSelectedOriginalLeaveId("");
+    setStartDate("");
+    setEndDate("");
+    setStartTime("");
+    setEndTime("");
+    setReason("");
+    setHandoverNotes("");
+    setSelectedOvertimeIds([]);
+    setLinkedOvertimes([]);
+    setUsageRecords([]);
+    
+    // 휴가 종류도 기본값(첫 번째 옵션)으로 되돌립니다.
+    if (leaveOptions.length > 0) {
+      setSelectedLeaveType(leaveOptions[0].label);
+      setLeaveFactor(leaveOptions[0].days);
+    }
+
+    // 변경/취소 탭일 경우에만 내 승인된 연차 목록을 새로 불러옵니다.
+    if (requestType === 'update' || requestType === 'cancel') {
       supabase.auth.getUser().then(async ({ data: { user } }) => {
         if (!user) return;
         const { data } = await supabase.from("leave_requests").select("*").eq("user_id", user.id).order("created_at", { ascending: false });
         if (data) setApprovedLeaves(getLatestApprovedItems(data, 'original_leave_request_id'));
       });
-      setSelectedOriginalLeaveId(""); setStartDate(""); setEndDate(""); setReason("");
-    } else if (requestType === 'create') {
-      setSelectedOriginalLeaveId(""); setReason("");
     }
-  }, [requestType, isOpen, isViewMode, supabase]);
-
+  }, [requestType, isOpen, isViewMode, supabase, leaveOptions]);
   // 3. 대체휴무 시 사용 가능한 초과근무 로드
   useEffect(() => {
     if (selectedLeaveType.startsWith("대체휴무") && !isViewMode && isOpen) {
@@ -217,15 +234,29 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
     if (res.error) alert(res.error); else { setNewLineTitle(""); getSavedLines().then(setSavedLines); }
   };
 
-  const handleSelectOriginalLeave = (leave: LeaveRecord) => {
+  const handleSelectOriginalLeave = async (leave: LeaveRecord) => {
     setSelectedOriginalLeaveId(leave.id); setStartDate(leave.start_date); setEndDate(leave.end_date);
     setSelectedLeaveType(leave.leave_type); setStartTime(leave.start_time?.slice(0, 5) || "");
     setEndTime(leave.end_time?.slice(0, 5) || ""); setHandoverNotes(leave.handover_notes || "");
     setReason(requestType === 'cancel' ? "" : (leave.reason || ""));
-    setSelectedOvertimeIds(parseIds(leave.overtime_request_ids || leave.overtime_request_id));
     
-    // ⭐️ 동적 옵션에서 차감 일수 찾기
+    const otIds = parseIds(leave.overtime_request_ids || leave.overtime_request_id);
+    setSelectedOvertimeIds(otIds);
+    
     setLeaveFactor(leaveOptions.find(opt => opt.label === leave.leave_type)?.days || 1.0);
+
+    // ⭐️ 추가됨: 취소/변경 시 원본 연차에 연결된 초과근무 내역과 사용(차감) 영수증 불러오기
+    if (otIds.length > 0) {
+      const [{ data: otData }, { data: usageData }] = await Promise.all([
+        supabase.from("overtime_requests").select("*").in("id", otIds),
+        supabase.from("leave_overtime_usage").select("*").eq("leave_request_id", leave.id)
+      ]);
+      setLinkedOvertimes(otData || []);
+      setUsageRecords(usageData || []);
+    } else {
+      setLinkedOvertimes([]);
+      setUsageRecords([]);
+    }
   };
 
   const handleSelectApprover = (user: ApproverUser) => {
@@ -271,6 +302,11 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
   const isFormDisabled = isViewMode || requestType === 'cancel';
   const isSubmitDisabled = isSubmitting || !approvers.length || ((requestType === 'update' || requestType === 'cancel') && !selectedOriginalLeaveId);
   const approverColleagues = colleagues.filter(u => u.is_approver);
+
+  // ⭐️ 추가됨: 원본 연차가 대체휴무인지 확인하고, 휴가 종류 선택을 막을지 결정
+  const selectedOriginalLeave = approvedLeaves.find(l => l.id === selectedOriginalLeaveId);
+  const isOriginalCompensatory = selectedOriginalLeave?.leave_type.startsWith("대체휴무");
+  const isLeaveTypeDisabled = isFormDisabled || (requestType === 'update' && isOriginalCompensatory);
 
   const labelBase = "block text-sm font-bold text-gray-800 mb-2";
   const inputBase = "w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500";
@@ -385,16 +421,22 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                 </div>
               )}
 
-              <div className={isFormDisabled ? "pointer-events-none grayscale" : ""}>
-                <label className={labelBase}>휴가 종류</label>
+              <div className={isLeaveTypeDisabled ? "pointer-events-none grayscale opacity-70" : ""}>
+                <label className={labelBase}>
+                  휴가 종류
+                  {requestType === 'update' && isOriginalCompensatory && (
+                    <span className="text-xs text-red-500 font-normal ml-2 tracking-tight">
+                      * 대체휴무는 휴가 종류를 변경할 수 없습니다. (취소 후 재신청 요망)
+                    </span>
+                  )}
+                </label>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                  {/* ⭐️ 동적으로 불러온 leaveOptions 배열을 매핑하여 렌더링합니다. */}
                   {leaveOptions.map(opt => {
                     const isSelected = isViewMode ? initialData?.leave_type === opt.label : selectedLeaveType === opt.label;
                     return (
                       <label key={opt.label} className={`flex items-center justify-between p-3 border rounded-lg transition-all ${isSelected ? 'bg-blue-50 border-blue-500 ring-1 ring-blue-500' : 'bg-white border-gray-200 hover:bg-gray-50'} ${isViewMode && !isSelected ? 'opacity-50' : ''}`}>
                         <div className="flex items-center gap-2 overflow-hidden">
-                          <input type="radio" name="leaveType" value={opt.label} required disabled={isFormDisabled} checked={isSelected} onChange={() => { setLeaveFactor(opt.days); setSelectedLeaveType(opt.label); }} className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                          <input type="radio" name="leaveType" value={opt.label} required disabled={isLeaveTypeDisabled} checked={isSelected} onChange={() => { setLeaveFactor(opt.days); setSelectedLeaveType(opt.label); }} className="w-4 h-4 text-blue-600 flex-shrink-0" />
                           <span className="text-sm text-gray-900 truncate font-medium">{opt.label}</span>
                         </div>
                         <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 ${opt.days > 0 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>{opt.days > 0 ? `-${opt.days.toFixed(2)}` : '0.0'}</span>
@@ -405,20 +447,25 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
               </div>
 
               {isCompensatory && (
-                <div className={`border rounded-lg p-4 animate-in fade-in slide-in-from-top-2 ${isFormDisabled ? "pointer-events-none grayscale bg-gray-50" : isViewMode ? 'bg-gray-50' : isSelectionValid ? 'bg-blue-50 border-blue-200' : 'bg-gray-50'}`}>
+                <div className={`border rounded-lg p-4 animate-in fade-in slide-in-from-top-2 ${isViewMode ? 'bg-gray-50' : requestType === 'cancel' ? 'bg-green-50 border-green-200 pointer-events-none' : requestType === 'update' ? 'bg-blue-50 border-blue-200 pointer-events-none' : isSelectionValid ? 'bg-blue-50 border-blue-200' : 'bg-gray-50'}`}>
                   <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2"><Clock className={`w-5 h-5 ${isSelectionValid || isViewMode ? 'text-blue-600' : 'text-gray-600'}`} /><h4 className={`text-sm font-bold ${isSelectionValid || isViewMode ? 'text-blue-800' : 'text-gray-800'}`}>{isViewMode ? "사용된 보상 휴가 원천" : "보상 휴가 원천 선택"}</h4></div>
-                    {!isViewMode && <div className={`text-xs font-bold px-3 py-1.5 rounded-full border ${isSelectionValid ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-red-50 text-red-600 border-red-200'}`}>모은 시간: {totalSelectedRemaining}h / 필요 시간: {currentReqHours}h</div>}
+                    <div className="flex items-center gap-2"><Clock className={`w-5 h-5 ${isSelectionValid || isViewMode || requestType === 'cancel' || requestType === 'update' ? 'text-blue-600' : 'text-gray-600'}`} /><h4 className={`text-sm font-bold ${isSelectionValid || isViewMode || requestType === 'cancel' || requestType === 'update' ? 'text-blue-800' : 'text-gray-800'}`}>{isViewMode || requestType === 'cancel' || requestType === 'update' ? "사용된 보상 휴가 원천" : "보상 휴가 원천 선택"}</h4></div>
+                    {!(isViewMode || requestType === 'cancel' || requestType === 'update') && <div className={`text-xs font-bold px-3 py-1.5 rounded-full border ${isSelectionValid ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-red-50 text-red-600 border-red-200'}`}>모은 시간: {totalSelectedRemaining}h / 필요 시간: {currentReqHours}h</div>}
                   </div>
                   
-                  {isViewMode ? (
+                  {/* ⭐️ 수정됨: 취소뿐만 아니라 '변경(update)' 신청서 작성 중일 때도 영수증 모드로 진입 */}
+                  {isViewMode || requestType === 'cancel' || requestType === 'update' ? (
                     linkedOvertimes.length > 0 ? (() => {
                       // 1. 프로시저와 동일하게 차감 순서를 맞추기 위해 ID 배열 순서대로 정렬
-                      const orderedOtIds = parseIds(initialData?.overtime_request_ids || initialData?.overtime_request_id);
+                      const orderedOtIds = isViewMode 
+                        ? parseIds(initialData?.overtime_request_ids || initialData?.overtime_request_id)
+                        : selectedOvertimeIds;
                       const sortedOvertimes = [...linkedOvertimes].sort((a, b) => orderedOtIds.indexOf(a.id) - orderedOtIds.indexOf(b.id));
                       
                       // 2. 차감 시뮬레이션을 위한 남은 필요 시간 계산
-                      let remDeduct = initialData?.deducted_hours || (initialData?.total_leave_days * 8) || 0;
+                      let remDeduct = isViewMode 
+                        ? (initialData?.deducted_hours || (initialData?.total_leave_days * 8) || 0)
+                        : (calcResult.totalDeduction * 8 || leaveFactor * 8);
 
                       return sortedOvertimes.map(ot => {
                         const usage = usageRecords.find(u => u.overtime_request_id === ot.id);
@@ -428,29 +475,36 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                         let badgeClass = "";
                         let subText = `총 ${ot.recognized_hours}h`;
                         
-                        const isCancelled = initialData?.status === 'cancelled' || initialData?.request_type === 'cancel';
+                        const isCancelled = isViewMode && (initialData?.status === 'cancelled' || initialData?.request_type === 'cancel');
 
                         if (isCancelled) {
-                          // ⭐️ 센스 추가: 영수증이 있으면 정확한 환불 시간을 표시
                           if (usage) {
                             usedText = `${usage.used_hours}시간 환불완료`;
-                            badgeClass = "bg-gray-100 text-gray-700"; // 취소선 제거하고 깔끔하게 표시
+                            badgeClass = "bg-gray-100 text-gray-700"; 
                           } else {
                             usedText = "취소됨 (환불완료)";
                             badgeClass = "bg-gray-100 text-gray-500 line-through";
                           }
                           subText = `현재 잔여 ${avail}h / 총 ${ot.recognized_hours}h`;
                           
-                        } else if (initialData?.status === 'rejected') {
+                        } else if (isViewMode && initialData?.status === 'rejected') {
                           usedText = "반려됨";
                           badgeClass = "bg-red-100 text-red-600";
-                        } else if (initialData?.status === 'pending') {
-                          // 3. 차감 예정 시간 계산 (프론트엔드 시뮬레이션)
+                        } else if (isViewMode && initialData?.status === 'pending') {
                           const expectedDeduct = Math.min(avail, remDeduct);
                           remDeduct = Math.max(0, remDeduct - expectedDeduct);
                           
                           usedText = `${expectedDeduct}시간 차감 예정`;
                           badgeClass = "bg-yellow-100 text-yellow-700";
+                          subText = `현재 잔여 ${avail}h / 총 ${ot.recognized_hours}h`;
+                        } else if (requestType === 'cancel') {
+                          usedText = usage ? `${usage.used_hours}시간 반환 예정` : `반환 예정`;
+                          badgeClass = "bg-green-100 text-green-700";
+                          subText = `현재 잔여 ${avail}h / 총 ${ot.recognized_hours}h`;
+                        } else if (requestType === 'update') {
+                          // ⭐️ 추가됨: 변경 신청서 작성 중일 때 "승계" 표시
+                          usedText = usage ? `기존 ${usage.used_hours}시간 승계` : `승계 예정`;
+                          badgeClass = "bg-blue-100 text-blue-700";
                           subText = `현재 잔여 ${avail}h / 총 ${ot.recognized_hours}h`;
                         } else {
                           // 승인된 상태 (approved)
