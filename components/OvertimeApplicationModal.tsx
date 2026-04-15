@@ -456,7 +456,7 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
                           let statusClass = "";
                           
                           if (leave.status === 'cancelled' || leave.request_type === 'cancel') {
-                            statusText = "취소됨 (환불)";
+                            statusText = "취소됨 (환급)";
                             statusClass = "bg-gray-100 text-gray-500 line-through";
                           } else if (leave.status === 'rejected') {
                             statusText = "반려됨";

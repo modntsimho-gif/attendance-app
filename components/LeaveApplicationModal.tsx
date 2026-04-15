@@ -377,21 +377,40 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                         const avail = (ot.recognized_hours || 0) - (ot.used_hours || 0);
                         let usedText = "", badgeClass = "";
                         const subText = `현재 잔여 ${avail}h / 총 ${ot.recognized_hours}h`;
-                        const isCancelled = isViewMode && (initialData?.status === 'cancelled' || initialData?.request_type === 'cancel');
+                        
+                        // ⭐️ 수정됨: 취소 관련 상태를 3가지로 정교하게 분리
+                        // 1. 완전 취소 완료 (원본이 cancelled 상태이거나, 취소신청서가 최종 approved 된 경우)
+                        const isFullyCancelled = isViewMode && (initialData?.status === 'cancelled' || (initialData?.request_type === 'cancel' && initialData?.status === 'approved'));
+                        // 2. 취소 결재 진행 중 (취소신청서가 pending 인 경우)
+                        const isPendingCancel = isViewMode && initialData?.request_type === 'cancel' && initialData?.status === 'pending';
+                        // 3. 취소 결재 반려 (취소신청서가 rejected 인 경우)
+                        const isRejectedCancel = isViewMode && initialData?.request_type === 'cancel' && initialData?.status === 'rejected';
 
-                        if (isCancelled) {
-                          usedText = usage ? `${usage.used_hours}시간 환불완료` : "취소됨 (환불완료)"; badgeClass = usage ? "bg-gray-100 text-gray-700" : "bg-gray-100 text-gray-500 line-through";
+                        if (isFullyCancelled) {
+                          usedText = usage ? `${usage.used_hours}시간 환급완료` : "취소됨 (환급완료)"; 
+                          badgeClass = usage ? "bg-gray-100 text-gray-700" : "bg-gray-100 text-gray-500 line-through";
+                        } else if (isPendingCancel) {
+                          usedText = usage ? `${usage.used_hours}시간 반환 대기중` : "반환 대기중"; 
+                          badgeClass = "bg-yellow-100 text-yellow-700"; // 노란색 배지
+                        } else if (isRejectedCancel) {
+                          usedText = "취소 반려됨"; 
+                          badgeClass = "bg-red-100 text-red-600";
                         } else if (isViewMode && initialData?.status === 'rejected') {
-                          usedText = "반려됨"; badgeClass = "bg-red-100 text-red-600";
+                          usedText = "반려됨"; 
+                          badgeClass = "bg-red-100 text-red-600";
                         } else if (isViewMode && initialData?.status === 'pending') {
                           const exp = Math.min(avail, remDeduct); remDeduct = Math.max(0, remDeduct - exp);
-                          usedText = `${exp}시간 차감 예정`; badgeClass = "bg-yellow-100 text-yellow-700";
+                          usedText = `${exp}시간 차감 예정`; 
+                          badgeClass = "bg-yellow-100 text-yellow-700";
                         } else if (requestType === 'cancel') {
-                          usedText = usage ? `${usage.used_hours}시간 반환 예정` : `반환 예정`; badgeClass = "bg-green-100 text-green-700";
+                          usedText = usage ? `${usage.used_hours}시간 반환 예정` : `반환 예정`; 
+                          badgeClass = "bg-green-100 text-green-700";
                         } else if (requestType === 'update') {
-                          usedText = usage ? `기존 ${usage.used_hours}시간 승계` : `승계 예정`; badgeClass = "bg-blue-100 text-blue-700";
+                          usedText = usage ? `기존 ${usage.used_hours}시간 승계` : `승계 예정`; 
+                          badgeClass = "bg-blue-100 text-blue-700";
                         } else {
-                          usedText = usage ? `${usage.used_hours}시간 차감` : `총 ${ot.recognized_hours}시간`; badgeClass = usage ? "bg-indigo-100 text-indigo-700" : "bg-blue-100 text-blue-700";
+                          usedText = usage ? `${usage.used_hours}시간 차감` : `총 ${ot.recognized_hours}시간`; 
+                          badgeClass = usage ? "bg-indigo-100 text-indigo-700" : "bg-blue-100 text-blue-700";
                         }
                         
                         return (

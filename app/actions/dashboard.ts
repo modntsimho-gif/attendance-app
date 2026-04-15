@@ -77,13 +77,19 @@ export async function getDashboardData() {
     // 1. [휴가 데이터 통합 조회]
     // ---------------------------------------------------------
     // 1. [휴가 데이터 통합 조회]
-    const { data: rawLeaves, error } = await supabase // 👈 error 추가
+    const { data: rawLeaves, error } = await supabase
       .from("leave_requests")
       .select(`
         id, leave_type, start_date, end_date, status, request_type, created_at, user_id, original_leave_request_id,
         profiles!inner ( name, department, position, avatar_url )
       `)
-      .gte("end_date", kstDateStr);
+      .gte("end_date", kstDateStr)
+      .neq("profiles.department", "외주"); // ⭐️ 추가됨: 부서가 "외주"인 직원은 DB 조회 단계에서 제외!
+
+    // 🚨 [NEW] 에러가 있는지 콘솔에 출력해 보기
+    if (error) {
+      console.error("🚨 Supabase 쿼리 에러 발생:", error);
+    }
 
     // 🚨 [NEW] 에러가 있는지 콘솔에 출력해 보기
     if (error) {
