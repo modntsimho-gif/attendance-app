@@ -84,11 +84,13 @@ export async function getCalendarEvents(
 
   const startDateStr = format(viewStart, "yyyy-MM-dd");
   const endDateStr = format(viewEnd, "yyyy-MM-dd");
-
+  
   // ⭐️ 2. 휴가 전체 조회 (정렬 및 필터를 위해 position, department 정보 추가)
   let leavesQuery = supabase
     .from("leave_requests")
-    .select("*, profiles(name, position, department)"); // ✅ department 추가
+    // ⭐️ profiles!inner 를 사용하면 profiles 테이블의 조건으로 leave_requests를 필터링할 수 있습니다.
+    .select("*, profiles!inner(name, position, department)")
+    .neq("profiles.department", "외주"); // ✅ DB 조회 단계에서 '외주' 부서 원천 차단!
     
   if (userId) {
     leavesQuery = leavesQuery.eq("user_id", userId);
