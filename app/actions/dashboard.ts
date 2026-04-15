@@ -73,9 +73,6 @@ export async function getDashboardData() {
   const futureDateStr = new Date(todayDate.getTime() + (30 * 24 * 60 * 60 * 1000)).toISOString().split('T')[0];
 
   try {
-    // ---------------------------------------------------------
-    // 1. [휴가 데이터 통합 조회]
-    // ---------------------------------------------------------
     // 1. [휴가 데이터 통합 조회]
     const { data: rawLeaves, error } = await supabase
       .from("leave_requests")

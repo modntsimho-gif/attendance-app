@@ -378,27 +378,33 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                         let usedText = "", badgeClass = "";
                         const subText = `현재 잔여 ${avail}h / 총 ${ot.recognized_hours}h`;
                         
-                        // ⭐️ 수정됨: 취소 관련 상태를 3가지로 정교하게 분리
-                        // 1. 완전 취소 완료 (원본이 cancelled 상태이거나, 취소신청서가 최종 approved 된 경우)
-                        const isFullyCancelled = isViewMode && (initialData?.status === 'cancelled' || (initialData?.request_type === 'cancel' && initialData?.status === 'approved'));
+                        // ⭐️ 수정됨: isViewMode 의존성을 제거하고, 대소문자 상관없이 정확하게 상태를 판별합니다.
+                        const reqType = initialData?.request_type?.toLowerCase();
+                        const status = initialData?.status?.toLowerCase();
+                        const isSaved = !!initialData?.id; // DB에 이미 저장된 기안 문서인지 확인
+
+                        // 1. 완전 취소 완료 (원본이 cancelled 상태이거나, 취소신청서가 최종 approved/completed 된 경우)
+                        const isFullyCancelled = isSaved && (status === 'cancelled' || (reqType === 'cancel' && (status === 'approved' || status === 'completed')));
+                        
                         // 2. 취소 결재 진행 중 (취소신청서가 pending 인 경우)
-                        const isPendingCancel = isViewMode && initialData?.request_type === 'cancel' && initialData?.status === 'pending';
+                        const isPendingCancel = isSaved && reqType === 'cancel' && status === 'pending';
+                        
                         // 3. 취소 결재 반려 (취소신청서가 rejected 인 경우)
-                        const isRejectedCancel = isViewMode && initialData?.request_type === 'cancel' && initialData?.status === 'rejected';
+                        const isRejectedCancel = isSaved && reqType === 'cancel' && status === 'rejected';
 
                         if (isFullyCancelled) {
                           usedText = usage ? `${usage.used_hours}시간 환급완료` : "취소됨 (환급완료)"; 
                           badgeClass = usage ? "bg-gray-100 text-gray-700" : "bg-gray-100 text-gray-500 line-through";
                         } else if (isPendingCancel) {
                           usedText = usage ? `${usage.used_hours}시간 반환 대기중` : "반환 대기중"; 
-                          badgeClass = "bg-yellow-100 text-yellow-700"; // 노란색 배지
+                          badgeClass = "bg-yellow-100 text-yellow-700";
                         } else if (isRejectedCancel) {
                           usedText = "취소 반려됨"; 
                           badgeClass = "bg-red-100 text-red-600";
-                        } else if (isViewMode && initialData?.status === 'rejected') {
+                        } else if (isSaved && status === 'rejected') {
                           usedText = "반려됨"; 
                           badgeClass = "bg-red-100 text-red-600";
-                        } else if (isViewMode && initialData?.status === 'pending') {
+                        } else if (isSaved && status === 'pending') {
                           const exp = Math.min(avail, remDeduct); remDeduct = Math.max(0, remDeduct - exp);
                           usedText = `${exp}시간 차감 예정`; 
                           badgeClass = "bg-yellow-100 text-yellow-700";
