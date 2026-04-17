@@ -180,18 +180,7 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                             <td className={`px-4 py-3.5 text-right font-bold ${latest.request_type === 'cancel' ? 'text-gray-300 line-through' : 'text-gray-900'}`}>-{Number(latest.total_leave_days).toFixed(2)}일</td>
                             <td className="px-4 py-3.5">{renderApprovers(latest.approval_lines)}</td>
                             <td className="px-4 py-3.5 text-gray-600 truncate">{latest.reason || '-'}</td>
-                            <td className="px-4 py-3.5">
-                              {sourceOts.length > 0 ? (
-                                <div className="flex gap-1.5 overflow-hidden">
-                                  {sourceOts.map((ot: any, idx: number) => (
-                                    <span key={idx} className="inline-flex items-center gap-1.5 bg-orange-50 border border-orange-200 text-orange-700 px-2 py-1 rounded-md text-xs font-bold hover:bg-orange-100 transition-all max-w-full" onClick={(e) => { e.stopPropagation(); setSelectedOvertime(ot); setIsOvertimeModalOpen(true); }}>
-                                      <Link2 className="w-3.5 h-3.5 shrink-0" />
-                                      <span className="truncate">{ot.title}</span>
-                                    </span>
-                                  ))}
-                                </div>
-                              ) : <span className="text-gray-300">-</span>}
-                            </td>
+                            <td className="px-4 py-3.5">{sourceOts.length > 0 ? <div className="flex gap-1.5 flex-wrap">{sourceOts.map((ot: any, idx: number) => <span key={idx} className="inline-flex items-center gap-1.5 bg-orange-50 border border-orange-200 text-orange-700 px-2 py-1 rounded-md text-xs font-bold hover:bg-orange-100 transition-all" onClick={(e) => { e.stopPropagation(); setSelectedOvertime(ot); setIsOvertimeModalOpen(true); }}><Link2 className="w-3.5 h-3.5" /> {ot.title}</span>)}</div> : <span className="text-gray-300">-</span>}</td>
                           </tr>
                           {history.map((h: any) => (
                             <tr key={h.id} className="bg-gray-50/50 text-gray-400 text-xs hover:bg-gray-100/50 cursor-pointer transition-colors" onClick={() => { setSelectedLeave(h); setIsLeaveModalOpen(true); }}>
@@ -271,6 +260,7 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
 
             {/* 📱 모바일 뷰 */}
             <div className="block md:hidden divide-y divide-gray-100">
+              {/* 모바일 뷰 코드는 기존과 동일하게 유지됩니다 */}
               {activeTab === 'leave' ? (
                 groupedLeaves.length === 0 ? <div className="p-8 text-center text-gray-400 text-sm">데이터가 없습니다.</div> : groupedLeaves.map((group: any[], i: number) => {
                   const latest = group[0], history = group.slice(1);
@@ -284,18 +274,7 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                       <div className="text-sm text-gray-600 line-clamp-2 mb-2">{latest.reason || '사유 없음'}</div>
                       <div className="bg-gray-50 rounded p-2 mb-3 border border-gray-100">{renderApprovers(latest.approval_lines)}</div>
                       <div className="flex justify-between items-end">
-                        <div className="flex-1 overflow-hidden">
-                          {sourceOts.length > 0 && (
-                            <div className="flex gap-1 overflow-hidden">
-                              {sourceOts.map((ot: any, idx: number) => (
-                                <span key={idx} className="inline-flex items-center gap-1 bg-orange-50 border border-orange-200 text-orange-700 px-1.5 py-0.5 rounded text-[10px] font-bold max-w-full" onClick={(e) => { e.stopPropagation(); setSelectedOvertime(ot); setIsOvertimeModalOpen(true); }}>
-                                  <Link2 className="w-3 h-3 shrink-0" />
-                                  <span className="truncate">{ot.title}</span>
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
+                        <div className="flex-1">{sourceOts.length > 0 && <div className="flex gap-1 flex-wrap">{sourceOts.map((ot: any, idx: number) => <span key={idx} className="inline-flex items-center gap-1 bg-orange-50 border border-orange-200 text-orange-700 px-1.5 py-0.5 rounded text-[10px] font-bold" onClick={(e) => { e.stopPropagation(); setSelectedOvertime(ot); setIsOvertimeModalOpen(true); }}><Link2 className="w-3 h-3" /> {ot.title}</span>)}</div>}</div>
                         <div className={`font-bold text-base shrink-0 ml-2 ${latest.request_type === 'cancel' ? 'text-gray-300 line-through' : 'text-gray-900'}`}>-{Number(latest.total_leave_days).toFixed(2)}일</div>
                       </div>
                       {history.length > 0 && (
