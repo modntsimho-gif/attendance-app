@@ -16,7 +16,6 @@ interface ApprovalRequest {
   isHoliday?: boolean; requestType: string; processedAt?: string;
 }
 
-// 탭 및 상태별 UI 상수화 (중복 제거용)
 const VIEW_MODES = [
   { id: "pending", label: "결재 대기" },
   { id: "history", label: "결재 내역" },
@@ -171,6 +170,36 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
     } catch (e: any) { alert(`오류: ${e.message}`); }
   };
 
+  // 현재 탭에 맞게 필터링된 데이터
+  const filteredData = requests.filter(item => activeTab === "all" || item.type === activeTab);
+
+  // ⭐️ 전체 승인 처리 함수 추가
+  const handleApproveAll = async () => {
+    if (!filteredData.length) return;
+    if (!confirm(`현재 목록에 있는 ${filteredData.length}건의 결재를 모두 승인하시겠습니까?`)) return;
+    
+    setLoading(true);
+    try {
+      // Promise.all을 사용하여 병렬로 전체 승인 처리
+      const promises = filteredData.map(item => 
+        supabase.rpc("process_approval_decision", { p_line_id: item.id, p_status: "approved", p_amount: 0 })
+      );
+      const results = await Promise.all(promises);
+      
+      const errors = results.filter(r => r.error);
+      if (errors.length > 0) throw new Error(`${errors.length}건의 처리에 실패했습니다.`);
+      
+      alert(`총 ${filteredData.length}건이 일괄 승인되었습니다.`);
+      fetchApprovals();
+      router.refresh();
+    } catch (e: any) { 
+      alert(`오류: ${e.message}`); 
+      fetchApprovals(); // 일부 실패하더라도 최신 상태로 갱신
+    } finally { 
+      setLoading(false); 
+    }
+  };
+
   const Badge = ({ type }: { type: string }) => {
     const config = {
       update: { bg: "bg-orange-50 text-orange-600 border-orange-100", Icon: FilePenLine, txt: "변경" },
@@ -181,7 +210,6 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
   };
 
   if (!isOpen) return null;
-  const filteredData = requests.filter(item => activeTab === "all" || item.type === activeTab);
   const EmptyIcon = EMPTY_STATES[viewMode].Icon;
 
   return (
@@ -189,7 +217,7 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
         <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden">
           
-          {/* 헤더 */}
+          {/* 헤더 영역 */}
           <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-800 text-white">
             <div>
               <h2 className="text-lg font-bold flex items-center gap-2"><FileText className="w-5 h-5 text-yellow-400" /> 결재 문서함</h2>
@@ -197,7 +225,21 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
                 {viewMode === 'pending' ? '승인 대기 중인' : viewMode === 'history' ? '내가 처리한' : '내가 기안한'} 문서가 <span className="text-yellow-400 font-bold">{requests.length}건</span> 있습니다.
               </p>
             </div>
-            <button onClick={onClose} className="text-gray-400 hover:text-white"><X className="w-6 h-6" /></button>
+            
+            {/* ⭐️ 우측 버튼 영역 (전체 승인 버튼 추가) */}
+            <div className="flex items-center gap-4">
+              {viewMode === 'pending' && filteredData.length > 0 && (
+                <button 
+                  onClick={handleApproveAll} 
+                  disabled={loading}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1.5 transition-colors shadow-sm"
+                >
+                  <CheckCircle2 className="w-4 h-4" /> 
+                  {loading ? '처리 중...' : `일괄 승인 (${filteredData.length}건)`}
+                </button>
+              )}
+              <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors"><X className="w-6 h-6" /></button>
+            </div>
           </div>
 
           {/* 탭 영역 */}
@@ -223,7 +265,7 @@ export default function ApprovalModal({ isOpen, onClose }: ApprovalModalProps) {
             {loading ? (
               <div className="flex flex-col items-center justify-center h-40">
                 <Loader2 className="w-8 h-8 text-blue-600 animate-spin mb-2" />
-                <p className="text-gray-500 text-sm">문서를 불러오는 중...</p>
+                <p className="text-gray-500 text-sm">문서를 처리하는 중...</p>
               </div>
             ) : filteredData.length > 0 ? (
               <div className="space-y-4">
