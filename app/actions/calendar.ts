@@ -96,7 +96,7 @@ export async function getCalendarEvents(
   }
   const { data: allLeaves } = await leavesQuery;
 
-  // 2.5 초과근무 전체 조회 (의도하신 테스트용 '외주악' 유지)
+  // 2.5 초과근무 전체 조회
   let overtimesQuery = supabase
     .from("overtime_requests")
     .select("*, profiles!inner(name, position, department)")
@@ -127,23 +127,31 @@ export async function getCalendarEvents(
     });
   }
 
-  // ⭐️ 5. 직급, 부서, 직원 정렬 기준 통합 조회 (department 추가)
+  // 5. 부서 및 직원 정렬 기준만 DB에서 조회 (직급은 제외)
   const { data: sortData } = await supabase
     .from("sort_settings")
     .select("target_type, target_id, sort_order")
-    .in("target_type", ["position", "department", "employee"]);
+    .in("target_type", ["department", "employee"]);
 
-  const pSortMap = new Map<string, number>();
-  const dSortMap = new Map<string, number>(); // 부서 맵 추가
+  const dSortMap = new Map<string, number>();
   const eSortMap = new Map<string, number>();
 
   if (sortData) {
     sortData.forEach(s => {
-      if (s.target_type === 'position') pSortMap.set(s.target_id, s.sort_order);
-      if (s.target_type === 'department') dSortMap.set(s.target_id, s.sort_order); // 부서 데이터 세팅
+      if (s.target_type === 'department') dSortMap.set(s.target_id, s.sort_order);
       if (s.target_type === 'employee') eSortMap.set(s.target_id, s.sort_order);
     });
   }
+
+  // 5.5 직급 고정 정렬 순서 (숫자가 작을수록 달력 상단에 배치)
+  const POSITION_ORDER: Record<string, number> = {
+    "사무총장": 1,
+    "팀장": 2,
+    "차장": 3,
+    "과장": 4,
+    "대리": 5,
+    "간사": 6,
+  };
 
   // 6. 최신 상태 필터링 및 날짜 범위 필터링
   const latestLeaves = filterLatestEvents(allLeaves || []);
@@ -190,22 +198,22 @@ export async function getCalendarEvents(
     };
   });
 
-  // ⭐️ 8. 직급 ➡️ 부서 ➡️ 직원 순서로 3단계 정렬 적용
+  // ⭐️ 8. 직급 ➡️ 직원 ➡️ 부서 순서로 3단계 정렬 적용
   const sortLogic = (a: any, b: any) => {
-    // 1순위: 직급 (Position)
-    const pOrderA = pSortMap.get(a._pos) ?? 999;
-    const pOrderB = pSortMap.get(b._pos) ?? 999;
+    // 1순위: 직급 (Position) - 하드코딩된 객체에서 순위 가져오기
+    const pOrderA = POSITION_ORDER[a._pos] ?? 999;
+    const pOrderB = POSITION_ORDER[b._pos] ?? 999;
     if (pOrderA !== pOrderB) return pOrderA - pOrderB;
 
-    // 2순위: 부서 (Department)
-    const dOrderA = dSortMap.get(a.department) ?? 999;
-    const dOrderB = dSortMap.get(b.department) ?? 999;
-    if (dOrderA !== dOrderB) return dOrderA - dOrderB;
-
-    // 3순위: 직원 (Employee)
+    // 2순위: 직원 (Employee) - DB 설정값
     const eOrderA = eSortMap.get(a.user_id) ?? 999;
     const eOrderB = eSortMap.get(b.user_id) ?? 999;
-    return eOrderA - eOrderB;
+    if (eOrderA !== eOrderB) return eOrderA - eOrderB;
+
+    // 3순위: 부서 (Department) - DB 설정값
+    const dOrderA = dSortMap.get(a.department) ?? 999;
+    const dOrderB = dSortMap.get(b.department) ?? 999;
+    return dOrderA - dOrderB;
   };
 
   formattedLeaves.sort(sortLogic);
