@@ -91,8 +91,20 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
     
     const alloc = allocations.find((a: any) => a.year === currentYear);
     const total = alloc ? alloc.total_days : (profile.total_leave_days || 0);
-    const usedA = fL.filter((l: any) => l.start_date?.startsWith(currentYear.toString()) && l.status === 'approved' && ['연차', 'annual', '반차', '반반차'].includes(l.leave_type)).reduce((sum: number, l: any) => sum + Number(l.total_leave_days), 0);
-    const used = Math.max(Number(profile.used_leave_days || 0), usedA);
+
+    // ⭐️ 프로필 값(Math.max) 제거 & 취소건 제외 & 관리자 직권 신청건 포함
+    const used = fL
+      .filter((l: any) => {
+        const isThisYear = l.start_date?.startsWith(currentYear.toString());
+        const isApproved = l.status === 'approved';
+        const isNotCancelled = l.request_type !== 'cancel'; // 취소 신청건 제외
+        const isAnnualType = ['연차', 'annual', '반차', '반반차'].includes(l.leave_type);
+        
+        // 본인이 올린 것이든 관리자가 올린 것(l.requester_id !== profile.id)이든 
+        // 위 조건만 맞으면 모두 합산됩니다.
+        return isThisYear && isApproved && isNotCancelled && isAnnualType;
+      })
+      .reduce((sum: number, l: any) => sum + Number(l.total_leave_days), 0);
 
     return { filteredLeaves: fL, filteredOvertimes: fO, currentYearStats: { total, used, remaining: total - used } };
   }, [startDate, endDate, showRemainingOvertimeOnly, showAnnualLeaveOnly, leaves, overtimes, allocations, profile, currentYear]);
@@ -140,7 +152,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
             
             <div className="flex flex-col sm:flex-row items-end sm:items-center gap-3 w-full sm:w-auto">
               
-              {/* ⭐️ 체크박스 2개를 묶어서 모바일에서 한 줄(flex-row)로 배치 */}
               <div className="flex flex-row items-center gap-2 w-full sm:w-auto">
                 {activeTab === 'leave' && (
                   <label className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-xs sm:text-sm text-gray-700 cursor-pointer bg-white border border-gray-200 px-2 sm:px-3 py-2 rounded-lg shadow-sm hover:bg-blue-50 transition-colors">
