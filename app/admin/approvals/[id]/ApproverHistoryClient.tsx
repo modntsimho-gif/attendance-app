@@ -2,7 +2,6 @@
 
 import { useState, useMemo } from "react";
 import { Clock, Calendar, Building2, MessageSquare, ChevronLeft, ChevronRight, Search, X } from "lucide-react";
-// ⭐️ 실제 경로와 컴포넌트명에 맞게 import 해주세요
 import LeaveApplicationModal from "@/components/LeaveApplicationModal";
 import OvertimeApplicationModal from "@/components/OvertimeApplicationModal";
 
@@ -205,17 +204,17 @@ export default function ApproverHistoryClient({ sortedDepts, grouped, empSortMap
 
               {/* 🖥️ PC 뷰 */}
               <div className="hidden md:block overflow-x-auto custom-scrollbar">
-                
-                {/* ⭐️ 1. table-fixed 유지 */}
                 <table className="w-full min-w-[1200px] text-sm text-left table-fixed">
                   <thead className="bg-gray-50/50 border-b border-gray-200 text-gray-500 font-medium whitespace-nowrap">
                     <tr>
                       <th className="px-5 py-3 w-[120px]">기안자</th>
-                      <th className="px-5 py-3 w-[100px]">구분</th>
+                      {/* ⭐️ 1. 구분 컬럼 너비를 100px -> 140px로 늘려 긴 텍스트 수용 */}
+                      <th className="px-5 py-3 w-[140px]">구분</th>
+                      {/* ⭐️ 2. 유형 컬럼은 별도로 분리 유지 */}
                       <th className="px-5 py-3 w-[80px]">유형</th>
                       <th className="px-5 py-3 w-[220px]">사용기간</th>
-                      {/* ⭐️ 2. 사유 칸 너비 400px 고정 */}
-                      <th className="px-5 py-3 w-[400px]">사유</th>
+                      {/* ⭐️ 3. 전체 너비 유지를 위해 사유 컬럼을 400px -> 360px로 조정 */}
+                      <th className="px-5 py-3 w-[360px]">사유</th>
                       <th className="px-5 py-3 w-[100px]">상신일</th>
                       <th className="px-5 py-3 w-[80px] text-center">상태</th>
                       <th className="px-5 py-3 w-[120px]">결재일시</th>
@@ -248,19 +247,24 @@ export default function ApproverHistoryClient({ sortedDepts, grouped, empSortMap
                               </td>
                             )}
                             
+                            {/* 구분 컬럼 */}
                             <td className="px-5 py-3.5 whitespace-nowrap">
                               {item.isLeave ? (
-                                <span className="flex items-center gap-1.5 text-blue-700 bg-blue-50 border border-blue-100 px-2 py-1 rounded-md text-xs font-bold w-fit">
-                                  <Calendar className="w-3.5 h-3.5"/> {item.req.leave_type}
+                                <span className="inline-flex items-center gap-1.5 text-blue-700 bg-blue-50 border border-blue-100 px-2 py-1 rounded-md text-xs font-bold w-fit">
+                                  <Calendar className="w-3.5 h-3.5 shrink-0"/> 
+                                  <span className="truncate max-w-[90px]">{item.req.leave_type}</span>
                                 </span>
                               ) : (
-                                <span className="flex items-center gap-1.5 text-orange-700 bg-orange-50 border border-orange-100 px-2 py-1 rounded-md text-xs font-bold w-fit">
-                                  <Clock className="w-3.5 h-3.5"/> 초과근무
+                                <span className="inline-flex items-center gap-1.5 text-orange-700 bg-orange-50 border border-orange-100 px-2 py-1 rounded-md text-xs font-bold w-fit">
+                                  <Clock className="w-3.5 h-3.5 shrink-0"/> 초과근무
                                 </span>
                               )}
                             </td>
                             
-                            <td className="px-5 py-3.5 whitespace-nowrap">{renderReqTypeBadge(item.req.request_type)}</td>
+                            {/* 유형 컬럼 */}
+                            <td className="px-5 py-3.5 whitespace-nowrap">
+                              {renderReqTypeBadge(item.req.request_type)}
+                            </td>
                             
                             <td className="px-5 py-3.5 font-bold text-gray-900 whitespace-nowrap">
                               {item.isLeave ? (
@@ -272,8 +276,7 @@ export default function ApproverHistoryClient({ sortedDepts, grouped, empSortMap
                               )}
                             </td>
 
-                            {/* ⭐️ 3. 핵심 해결책: td에 max-w-[400px]를 주고, 안쪽에 <div className="grid">를 감쌉니다. */}
-                            <td className="px-5 py-3.5 w-[400px] max-w-[400px]">
+                            <td className="px-5 py-3.5 w-[360px] max-w-[360px]">
                               <div className="grid">
                                 <div className="truncate text-gray-800" title={item.req.reason}>
                                   {!item.isLeave && item.req.title && (
