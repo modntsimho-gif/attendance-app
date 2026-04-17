@@ -74,7 +74,7 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
   const [activeTab, setActiveTab] = useState<'leave' | 'overtime'>('leave');
   const [showRemainingOvertimeOnly, setShowRemainingOvertimeOnly] = useState(false);
   const [showAnnualLeaveOnly, setShowAnnualLeaveOnly] = useState(false);
-  const [excludeCancelled, setExcludeCancelled] = useState(false); // ⭐️ 취소건 제외 상태 추가
+  const [excludeCancelled, setExcludeCancelled] = useState(false);
   const [selectedLeave, setSelectedLeave] = useState<any>(null);
   const [selectedOvertime, setSelectedOvertime] = useState<any>(null);
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
@@ -97,7 +97,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
     return { filteredLeaves: fL, filteredOvertimes: fO, currentYearStats: { total, used, remaining: total - used } };
   }, [startDate, endDate, showRemainingOvertimeOnly, showAnnualLeaveOnly, leaves, overtimes, allocations, profile, currentYear]);
 
-  // ⭐️ 그룹화된 데이터에서 '취소' 상태인 그룹을 필터링
   const groupedLeaves = useMemo(() => {
     const groups = groupHistory(filteredLeaves, 'id', 'original_leave_request_id');
     if (!excludeCancelled) return groups;
@@ -152,7 +151,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                 </label>
               )}
               
-              {/* ⭐️ 취소건 제외 체크박스 추가 (휴가, 초과근무 탭 모두 노출) */}
               <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer bg-white border border-gray-200 px-3 py-2 rounded-lg shadow-sm hover:bg-gray-50 transition-colors">
                 <input type="checkbox" checked={excludeCancelled} onChange={(e) => setExcludeCancelled(e.target.checked)} className="w-4 h-4 text-gray-600 rounded border-gray-300 focus:ring-gray-500 cursor-pointer" />
                 <span className="font-medium">취소건 제외</span>
@@ -200,7 +198,7 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                             <td className="px-4 py-3.5 text-gray-600 truncate">{latest.reason || '-'}</td>
                             <td className="px-4 py-3.5">
                               {sourceOts.length > 0 ? (
-                                <div className="flex gap-1.5 overflow-hidden">
+                                <div className="flex flex-col gap-1.5 items-start">
                                   {sourceOts.map((ot: any, idx: number) => (
                                     <span key={idx} className="inline-flex items-center gap-1.5 bg-orange-50 border border-orange-200 text-orange-700 px-2 py-1 rounded-md text-xs font-bold hover:bg-orange-100 transition-all max-w-full" onClick={(e) => { e.stopPropagation(); setSelectedOvertime(ot); setIsOvertimeModalOpen(true); }}>
                                       <Link2 className="w-3.5 h-3.5 shrink-0" />
@@ -304,9 +302,9 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                       <div className="flex justify-between items-end">
                         <div className="flex-1 overflow-hidden">
                           {sourceOts.length > 0 && (
-                            <div className="flex gap-1 overflow-hidden">
+                            <div className="flex flex-col gap-1.5 items-start">
                               {sourceOts.map((ot: any, idx: number) => (
-                                <span key={idx} className="inline-flex items-center gap-1 bg-orange-50 border border-orange-200 text-orange-700 px-1.5 py-0.5 rounded text-[10px] font-bold max-w-full" onClick={(e) => { e.stopPropagation(); setSelectedOvertime(ot); setIsOvertimeModalOpen(true); }}>
+                                <span key={idx} className="inline-flex items-center gap-1.5 bg-orange-50 border border-orange-200 text-orange-700 px-1.5 py-0.5 rounded text-[10px] font-bold max-w-full" onClick={(e) => { e.stopPropagation(); setSelectedOvertime(ot); setIsOvertimeModalOpen(true); }}>
                                   <Link2 className="w-3 h-3 shrink-0" />
                                   <span className="truncate">{ot.title}</span>
                                 </span>
