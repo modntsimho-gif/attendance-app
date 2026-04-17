@@ -60,7 +60,8 @@ export default function ScheduleClient({
         totalAnnual = emp.total_leave_days || 0;
       }
       
-      let usedAnnual = leaves
+      // ⭐️ 프로필 값 비교 로직 제거, 순수 내역 합산만 사용
+      const usedAnnual = leaves
         .filter(l => 
           l.user_id === emp.id && 
           l.status === 'approved' && 
@@ -75,15 +76,9 @@ export default function ScheduleClient({
         )
         .reduce((sum, l) => sum + Number(l.total_leave_days), 0);
 
-      if (selectedYear === currentYear) {
-        const profileUsed = Number(emp.used_leave_days || 0);
-        if (profileUsed > usedAnnual) {
-          usedAnnual = profileUsed;
-        }
-      }
-
-      // 🟢 2. 보상 휴가(연차 외 휴가) 계산 로직 수정
-      let totalExtra = overtimes
+      // 🟢 2. 보상 휴가(연차 외 휴가) 계산
+      // ⭐️ 프로필 값 비교 로직 제거, 순수 내역 합산만 사용
+      const totalExtra = overtimes
         .filter(o => 
           o.user_id === emp.id && 
           o.status === 'approved' && 
@@ -92,24 +87,15 @@ export default function ScheduleClient({
         )
         .reduce((sum, o) => sum + Number(o.recognized_days || (o.recognized_hours ? o.recognized_hours / 8 : 0)), 0);
 
-      let usedExtra = leaves
+      const usedExtra = leaves
         .filter(l => 
           l.user_id === emp.id && 
           l.status === 'approved' && 
           l.request_type !== 'cancel' && 
-          l.leave_type?.includes('대체휴무') && // ⭐️ 대체휴무 키워드로 필터링
+          l.leave_type?.includes('대체휴무') && 
           l.start_date?.startsWith(yearStr)
         )
         .reduce((sum, l) => sum + Number(l.total_leave_days || 0), 0);
-
-      // 현재 연도일 경우 프로필의 누적 데이터와 비교하여 보정
-      if (selectedYear === currentYear) {
-        const profileExtraTotal = Number(emp.extra_leave_days || 0);
-        const profileExtraUsed = Number(emp.extra_used_leave_days || 0);
-        
-        if (profileExtraTotal > totalExtra) totalExtra = profileExtraTotal;
-        if (profileExtraUsed > usedExtra) usedExtra = profileExtraUsed;
-      }
 
       return {
         ...emp,
