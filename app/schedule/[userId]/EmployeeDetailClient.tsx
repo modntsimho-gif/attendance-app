@@ -73,11 +73,12 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
   const [endDate, setEndDate] = useState("");
   const [activeTab, setActiveTab] = useState<'leave' | 'overtime'>('leave');
   const [showRemainingOvertimeOnly, setShowRemainingOvertimeOnly] = useState(false);
+  const [showAnnualLeaveOnly, setShowAnnualLeaveOnly] = useState(false);
+  const [excludeCancelled, setExcludeCancelled] = useState(false); // ⭐️ 취소건 제외 상태 추가
   const [selectedLeave, setSelectedLeave] = useState<any>(null);
   const [selectedOvertime, setSelectedOvertime] = useState<any>(null);
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
   const [isOvertimeModalOpen, setIsOvertimeModalOpen] = useState(false);
-  const [showAnnualLeaveOnly, setShowAnnualLeaveOnly] = useState(false);
 
   
   const { filteredLeaves, filteredOvertimes, currentYearStats } = useMemo(() => {
@@ -96,8 +97,18 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
     return { filteredLeaves: fL, filteredOvertimes: fO, currentYearStats: { total, used, remaining: total - used } };
   }, [startDate, endDate, showRemainingOvertimeOnly, showAnnualLeaveOnly, leaves, overtimes, allocations, profile, currentYear]);
 
-  const groupedLeaves = useMemo(() => groupHistory(filteredLeaves, 'id', 'original_leave_request_id'), [filteredLeaves]);
-  const groupedOvertimes = useMemo(() => groupHistory(filteredOvertimes, 'id', 'original_overtime_request_id'), [filteredOvertimes]);
+  // ⭐️ 그룹화된 데이터에서 '취소' 상태인 그룹을 필터링
+  const groupedLeaves = useMemo(() => {
+    const groups = groupHistory(filteredLeaves, 'id', 'original_leave_request_id');
+    if (!excludeCancelled) return groups;
+    return groups.filter(g => g[0].request_type !== 'cancel' && g[0].status !== 'cancelled');
+  }, [filteredLeaves, excludeCancelled]);
+
+  const groupedOvertimes = useMemo(() => {
+    const groups = groupHistory(filteredOvertimes, 'id', 'original_overtime_request_id');
+    if (!excludeCancelled) return groups;
+    return groups.filter(g => g[0].request_type !== 'cancel' && g[0].status !== 'cancelled');
+  }, [filteredOvertimes, excludeCancelled]);
 
   return (
     <>
@@ -140,6 +151,13 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                   <span className="font-medium">잔여 시간 있는 건만</span>
                 </label>
               )}
+              
+              {/* ⭐️ 취소건 제외 체크박스 추가 (휴가, 초과근무 탭 모두 노출) */}
+              <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer bg-white border border-gray-200 px-3 py-2 rounded-lg shadow-sm hover:bg-gray-50 transition-colors">
+                <input type="checkbox" checked={excludeCancelled} onChange={(e) => setExcludeCancelled(e.target.checked)} className="w-4 h-4 text-gray-600 rounded border-gray-300 focus:ring-gray-500 cursor-pointer" />
+                <span className="font-medium">취소건 제외</span>
+              </label>
+
               <div className="flex items-center bg-white border border-gray-200 rounded-lg px-3 py-2 shadow-sm w-full sm:w-auto">
                 <Search className="w-4 h-4 text-gray-400 mr-2 shrink-0" />
                 <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="text-sm outline-none text-gray-900 bg-white w-full" />
@@ -180,7 +198,18 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                             <td className={`px-4 py-3.5 text-right font-bold ${latest.request_type === 'cancel' ? 'text-gray-300 line-through' : 'text-gray-900'}`}>-{Number(latest.total_leave_days).toFixed(2)}일</td>
                             <td className="px-4 py-3.5">{renderApprovers(latest.approval_lines)}</td>
                             <td className="px-4 py-3.5 text-gray-600 truncate">{latest.reason || '-'}</td>
-                            <td className="px-4 py-3.5">{sourceOts.length > 0 ? <div className="flex gap-1.5 flex-wrap">{sourceOts.map((ot: any, idx: number) => <span key={idx} className="inline-flex items-center gap-1.5 bg-orange-50 border border-orange-200 text-orange-700 px-2 py-1 rounded-md text-xs font-bold hover:bg-orange-100 transition-all" onClick={(e) => { e.stopPropagation(); setSelectedOvertime(ot); setIsOvertimeModalOpen(true); }}><Link2 className="w-3.5 h-3.5" /> {ot.title}</span>)}</div> : <span className="text-gray-300">-</span>}</td>
+                            <td className="px-4 py-3.5">
+                              {sourceOts.length > 0 ? (
+                                <div className="flex gap-1.5 overflow-hidden">
+                                  {sourceOts.map((ot: any, idx: number) => (
+                                    <span key={idx} className="inline-flex items-center gap-1.5 bg-orange-50 border border-orange-200 text-orange-700 px-2 py-1 rounded-md text-xs font-bold hover:bg-orange-100 transition-all max-w-full" onClick={(e) => { e.stopPropagation(); setSelectedOvertime(ot); setIsOvertimeModalOpen(true); }}>
+                                      <Link2 className="w-3.5 h-3.5 shrink-0" />
+                                      <span className="truncate">{ot.title}</span>
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : <span className="text-gray-300">-</span>}
+                            </td>
                           </tr>
                           {history.map((h: any) => (
                             <tr key={h.id} className="bg-gray-50/50 text-gray-400 text-xs hover:bg-gray-100/50 cursor-pointer transition-colors" onClick={() => { setSelectedLeave(h); setIsLeaveModalOpen(true); }}>
@@ -260,7 +289,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
 
             {/* 📱 모바일 뷰 */}
             <div className="block md:hidden divide-y divide-gray-100">
-              {/* 모바일 뷰 코드는 기존과 동일하게 유지됩니다 */}
               {activeTab === 'leave' ? (
                 groupedLeaves.length === 0 ? <div className="p-8 text-center text-gray-400 text-sm">데이터가 없습니다.</div> : groupedLeaves.map((group: any[], i: number) => {
                   const latest = group[0], history = group.slice(1);
@@ -274,7 +302,18 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                       <div className="text-sm text-gray-600 line-clamp-2 mb-2">{latest.reason || '사유 없음'}</div>
                       <div className="bg-gray-50 rounded p-2 mb-3 border border-gray-100">{renderApprovers(latest.approval_lines)}</div>
                       <div className="flex justify-between items-end">
-                        <div className="flex-1">{sourceOts.length > 0 && <div className="flex gap-1 flex-wrap">{sourceOts.map((ot: any, idx: number) => <span key={idx} className="inline-flex items-center gap-1 bg-orange-50 border border-orange-200 text-orange-700 px-1.5 py-0.5 rounded text-[10px] font-bold" onClick={(e) => { e.stopPropagation(); setSelectedOvertime(ot); setIsOvertimeModalOpen(true); }}><Link2 className="w-3 h-3" /> {ot.title}</span>)}</div>}</div>
+                        <div className="flex-1 overflow-hidden">
+                          {sourceOts.length > 0 && (
+                            <div className="flex gap-1 overflow-hidden">
+                              {sourceOts.map((ot: any, idx: number) => (
+                                <span key={idx} className="inline-flex items-center gap-1 bg-orange-50 border border-orange-200 text-orange-700 px-1.5 py-0.5 rounded text-[10px] font-bold max-w-full" onClick={(e) => { e.stopPropagation(); setSelectedOvertime(ot); setIsOvertimeModalOpen(true); }}>
+                                  <Link2 className="w-3 h-3 shrink-0" />
+                                  <span className="truncate">{ot.title}</span>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                         <div className={`font-bold text-base shrink-0 ml-2 ${latest.request_type === 'cancel' ? 'text-gray-300 line-through' : 'text-gray-900'}`}>-{Number(latest.total_leave_days).toFixed(2)}일</div>
                       </div>
                       {history.length > 0 && (
