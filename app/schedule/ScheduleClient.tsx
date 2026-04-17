@@ -51,7 +51,7 @@ export default function ScheduleClient({
     const yearStr = selectedYear.toString();
 
     return employees.map((emp) => {
-      // 🟢 1. 일반 연차 계산
+      // 🟢 1. 일반 연차 계산 (선택된 연도 기준)
       const alloc = allocations.find(a => a.user_id === emp.id && a.year === selectedYear);
       let totalAnnual = 0;
       if (alloc) {
@@ -60,7 +60,6 @@ export default function ScheduleClient({
         totalAnnual = emp.total_leave_days || 0;
       }
       
-      // ⭐️ 프로필 값 비교 로직 제거, 순수 내역 합산만 사용
       const usedAnnual = leaves
         .filter(l => 
           l.user_id === emp.id && 
@@ -72,18 +71,17 @@ export default function ScheduleClient({
             l.leave_type === '반차' || 
             l.leave_type === '반반차'
           ) && 
-          l.start_date?.startsWith(yearStr)
+          l.start_date?.startsWith(yearStr) // 기본 연차는 연도 필터 유지
         )
         .reduce((sum, l) => sum + Number(l.total_leave_days), 0);
 
-      // 🟢 2. 보상 휴가(연차 외 휴가) 계산
-      // ⭐️ 프로필 값 비교 로직 제거, 순수 내역 합산만 사용
+      // 🟢 2. 보상 휴가(연차 외 휴가) 계산 - ⭐️ 연도 무관 누적 합산으로 복구!
       const totalExtra = overtimes
         .filter(o => 
           o.user_id === emp.id && 
           o.status === 'approved' && 
-          o.request_type !== 'cancel' && 
-          o.work_date?.startsWith(yearStr)
+          o.request_type !== 'cancel'
+          // ⭐️ o.work_date?.startsWith(yearStr) 제거됨 (누적)
         )
         .reduce((sum, o) => sum + Number(o.recognized_days || (o.recognized_hours ? o.recognized_hours / 8 : 0)), 0);
 
@@ -92,8 +90,8 @@ export default function ScheduleClient({
           l.user_id === emp.id && 
           l.status === 'approved' && 
           l.request_type !== 'cancel' && 
-          l.leave_type?.includes('대체휴무') && 
-          l.start_date?.startsWith(yearStr)
+          l.leave_type?.includes('대체휴무')
+          // ⭐️ l.start_date?.startsWith(yearStr) 제거됨 (누적)
         )
         .reduce((sum, l) => sum + Number(l.total_leave_days || 0), 0);
 

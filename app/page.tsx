@@ -21,54 +21,59 @@ export default async function DashboardPage() {
     .eq("id", user.id)
     .single();
 
-  // ⭐️ 1.5 올해 기준 실시간 연차/보상휴가 계산 로직 추가
+  // ⭐️ 1.5 실시간 연차/보상휴가 계산 로직 (기본 연차 vs 누적 보상휴가 분리)
   const currentYear = new Date().getFullYear();
   const yearStart = `${currentYear}-01-01`;
   const yearEnd = `${currentYear}-12-31`;
 
-  const [allocRes, leavesRes, overtimesRes] = await Promise.all([
-    // ① 올해 부여된 총 연차
+  const [allocRes, annualLeavesRes, extraLeavesRes, overtimesRes] = await Promise.all([
+    // ① 올해 부여된 총 연차 (연도 제한 O)
     supabase
       .from("annual_leave_allocations")
       .select("total_days")
       .eq("user_id", user.id)
       .eq("year", currentYear)
       .maybeSingle(),
-    // ② 올해 승인된 휴가 내역 (취소 제외)
+      
+    // ② 올해 사용한 '기본 연차' (연도 제한 O)
     supabase
       .from("leave_requests")
-      .select("leave_type, total_leave_days")
+      .select("total_leave_days")
       .eq("user_id", user.id)
       .eq("status", "approved")
       .neq("request_type", "cancel")
+      .in("leave_type", ['연차', 'annual', '반차', '반반차'])
       .gte("start_date", yearStart)
       .lte("start_date", yearEnd),
-    // ③ 올해 승인된 초과근무 내역 (취소 제외)
+      
+    // ③ 누적 사용한 '보상 휴가' (연도 제한 X - 전체 기간 합산)
+    supabase
+      .from("leave_requests")
+      .select("total_leave_days")
+      .eq("user_id", user.id)
+      .eq("status", "approved")
+      .neq("request_type", "cancel")
+      .ilike("leave_type", "%대체휴무%"),
+      
+    // ④ 누적 발생한 '초과근무' (연도 제한 X - 전체 기간 합산)
     supabase
       .from("overtime_requests")
       .select("recognized_days, recognized_hours")
       .eq("user_id", user.id)
       .eq("status", "approved")
       .neq("request_type", "cancel")
-      .gte("work_date", yearStart)
-      .lte("work_date", yearEnd)
   ]);
-
-  const leaves = leavesRes.data || [];
-  const overtimes = overtimesRes.data || [];
 
   // 📊 실시간 합산 계산
   const calculatedTotalLeave = allocRes.data ? allocRes.data.total_days : (profile?.total_leave_days || 0);
   
-  const calculatedUsedLeave = leaves
-    .filter(l => ['연차', 'annual', '반차', '반반차'].includes(l.leave_type))
+  const calculatedUsedLeave = (annualLeavesRes.data || [])
     .reduce((sum, l) => sum + Number(l.total_leave_days || 0), 0);
 
-  const calculatedExtraTotal = overtimes
+  const calculatedExtraTotal = (overtimesRes.data || [])
     .reduce((sum, o) => sum + Number(o.recognized_days || (o.recognized_hours ? o.recognized_hours / 8 : 0)), 0);
 
-  const calculatedExtraUsed = leaves
-    .filter(l => l.leave_type?.includes('대체휴무'))
+  const calculatedExtraUsed = (extraLeavesRes.data || [])
     .reduce((sum, l) => sum + Number(l.total_leave_days || 0), 0);
 
   // 2. [본인] 연차 신청 건수 (대기중)
