@@ -85,17 +85,27 @@ export async function getCalendarEvents(
   const startDateStr = format(viewStart, "yyyy-MM-dd");
   const endDateStr = format(viewEnd, "yyyy-MM-dd");
   
-  // ⭐️ 2. 휴가 전체 조회 (정렬 및 필터를 위해 position, department 정보 추가)
+  // 2. 휴가 전체 조회
   let leavesQuery = supabase
     .from("leave_requests")
-    // ⭐️ profiles!inner 를 사용하면 profiles 테이블의 조건으로 leave_requests를 필터링할 수 있습니다.
     .select("*, profiles!inner(name, position, department)")
-    .neq("profiles.department", "외주"); // ✅ DB 조회 단계에서 '외주' 부서 원천 차단!
+    .neq("profiles.department", "외주");
     
   if (userId) {
     leavesQuery = leavesQuery.eq("user_id", userId);
   }
   const { data: allLeaves } = await leavesQuery;
+
+  // 2.5 초과근무 전체 조회
+  let overtimesQuery = supabase
+    .from("overtime_requests")
+    .select("*, profiles!inner(name, position, department)")
+    .eq("profiles.department", "외주악");
+    
+  if (userId) {
+    overtimesQuery = overtimesQuery.eq("user_id", userId);
+  }
+  const { data: allOvertimes } = await overtimesQuery;
 
   // 3. 공휴일 조회
   const { data: holidays } = await supabase
@@ -117,14 +127,14 @@ export async function getCalendarEvents(
     });
   }
 
-  // 5. 직급 및 직원 정렬 기준(sort_settings) 통합 조회
+  // 5. 직급 및 직원 정렬 기준 통합 조회
   const { data: sortData } = await supabase
     .from("sort_settings")
     .select("target_type, target_id, sort_order")
     .in("target_type", ["position", "employee"]);
 
-  const pSortMap = new Map<string, number>(); // 직급 정렬
-  const eSortMap = new Map<string, number>(); // 직원 정렬
+  const pSortMap = new Map<string, number>();
+  const eSortMap = new Map<string, number>();
 
   if (sortData) {
     sortData.forEach(s => {
@@ -141,7 +151,13 @@ export async function getCalendarEvents(
     return (leaveStart <= viewEnd) && (leaveEnd >= viewStart);
   });
 
-  // 7. 데이터 가공
+  const latestOvertimes = filterLatestEvents(allOvertimes || []);
+  const finalOvertimes = latestOvertimes.filter(ot => {
+    const workDate = parseISO(ot.work_date);
+    return (workDate <= viewEnd) && (workDate >= viewStart);
+  });
+
+  // 7. 데이터 가공 (휴가)
   const formattedLeaves = finalLeaves.map(leave => {
     const userName = leave.profiles?.name || "알 수 없음";
     const targetUserId = leave.user_id;
@@ -149,33 +165,53 @@ export async function getCalendarEvents(
 
     return {
       ...leave,
-      department: leave.profiles?.department || "소속 없음", // ✅ 부서 정보 매핑 추가
+      department: leave.profiles?.department || "소속 없음",
       leave_type: `[${userName}] ${leave.leave_type}`,
       color: finalColor,
-      // 정렬에 사용할 데이터 임시 저장
       _pos: leave.profiles?.position || ""
     };
   });
 
+  // ⭐️ 7.5 데이터 가공 (초과근무)
+  const formattedOvertimes = finalOvertimes.map(ot => {
+    const userName = ot.profiles?.name || "알 수 없음";
+    const targetUserId = ot.user_id;
+    
+    // 연차와 완벽하게 동일한 색상 로직 적용
+    const finalColor = customColorMap.get(targetUserId) || getDefaultUserColor(targetUserId);
+
+    return {
+      ...ot,
+      user_name: userName,
+      department: ot.profiles?.department || "소속 없음",
+      // ⭐️ 요청하신 텍스트 포맷 적용
+      title: `[${userName}] 초과근무 ${ot.total_hours}시간`,
+      color: finalColor, 
+      _pos: ot.profiles?.position || ""
+    };
+  });
+
   // 8. 직급 ➡️ 직원 순서로 정렬 적용
-  formattedLeaves.sort((a, b) => {
-    // 1순위: 직급 정렬
+  const sortLogic = (a: any, b: any) => {
     const pOrderA = pSortMap.get(a._pos) ?? 999;
     const pOrderB = pSortMap.get(b._pos) ?? 999;
     if (pOrderA !== pOrderB) return pOrderA - pOrderB;
 
-    // 2순위: 직원 개별 정렬
     const eOrderA = eSortMap.get(a.user_id) ?? 999;
     const eOrderB = eSortMap.get(b.user_id) ?? 999;
     return eOrderA - eOrderB;
-  });
+  };
+
+  formattedLeaves.sort(sortLogic);
+  formattedOvertimes.sort(sortLogic);
 
   // 클라이언트로 넘기기 전 임시 데이터(_pos) 제거
   const cleanedLeaves = formattedLeaves.map(({ _pos, ...rest }) => rest);
+  const cleanedOvertimes = formattedOvertimes.map(({ _pos, ...rest }) => rest);
 
   return {
     leaves: cleanedLeaves,
-    overtimes: [], // 초과근무도 필요하다면 동일하게 department 매핑이 필요합니다.
+    overtimes: cleanedOvertimes,
     holidays: holidays || []
   };
 }

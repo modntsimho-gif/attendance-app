@@ -206,15 +206,19 @@ export default function ApproverHistoryClient({ sortedDepts, grouped, empSortMap
               </div>
 
               {/* 🖥️ PC 뷰 */}
-              <div className="hidden md:block overflow-x-auto">
-                <table className="w-full text-sm text-left whitespace-nowrap">
-                  <thead className="bg-gray-50/50 border-b border-gray-200 text-gray-500 font-medium">
+              {/* ⭐️ 1. overflow-x-auto를 다시 추가하여 가로 스크롤 허용 */}
+              <div className="hidden md:block overflow-x-auto custom-scrollbar">
+                
+                {/* ⭐️ 2. min-w-[1200px]를 추가하여 테이블을 좌우로 넓게 강제 확장 */}
+                <table className="w-full min-w-[1200px] text-sm text-left">
+                  <thead className="bg-gray-50/50 border-b border-gray-200 text-gray-500 font-medium whitespace-nowrap">
                     <tr>
                       <th className="px-5 py-3 w-[120px]">기안자</th>
                       <th className="px-5 py-3 w-[100px]">구분</th>
                       <th className="px-5 py-3 w-[80px]">유형</th>
                       <th className="px-5 py-3 w-[220px]">사용기간</th>
-                      <th className="px-5 py-3 min-w-[200px]">사유</th>
+                      {/* ⭐️ 3. 사유 칸에 넉넉한 최소 너비(min-w-[400px]) 부여 */}
+                      <th className="px-5 py-3 min-w-[400px]">사유</th>
                       <th className="px-5 py-3 w-[100px]">상신일</th>
                       <th className="px-5 py-3 w-[80px] text-center">상태</th>
                       <th className="px-5 py-3 w-[120px]">결재일시</th>
@@ -237,7 +241,7 @@ export default function ApproverHistoryClient({ sortedDepts, grouped, empSortMap
                           >
                             {idx === 0 && (
                               <td 
-                                className="px-5 py-4 align-top border-r border-gray-100 bg-white/50" 
+                                className="px-5 py-4 align-top border-r border-gray-100 bg-white/50 whitespace-nowrap" 
                                 rowSpan={sortedLines.length}
                               >
                                 <div className="flex items-center gap-2 mt-0.5">
@@ -247,7 +251,7 @@ export default function ApproverHistoryClient({ sortedDepts, grouped, empSortMap
                               </td>
                             )}
                             
-                            <td className="px-5 py-3.5">
+                            <td className="px-5 py-3.5 whitespace-nowrap">
                               {item.isLeave ? (
                                 <span className="flex items-center gap-1.5 text-blue-700 bg-blue-50 border border-blue-100 px-2 py-1 rounded-md text-xs font-bold w-fit">
                                   <Calendar className="w-3.5 h-3.5"/> {item.req.leave_type}
@@ -258,9 +262,10 @@ export default function ApproverHistoryClient({ sortedDepts, grouped, empSortMap
                                 </span>
                               )}
                             </td>
-                            <td className="px-5 py-3.5">{renderReqTypeBadge(item.req.request_type)}</td>
                             
-                            <td className="px-5 py-3.5 font-bold text-gray-900">
+                            <td className="px-5 py-3.5 whitespace-nowrap">{renderReqTypeBadge(item.req.request_type)}</td>
+                            
+                            <td className="px-5 py-3.5 font-bold text-gray-900 whitespace-nowrap">
                               {item.isLeave ? (
                                 item.req.start_time && item.req.end_time 
                                   ? `${item.req.start_date} ${formatTime(item.req.start_time)} ~ ${formatTime(item.req.end_time)}`
@@ -270,26 +275,29 @@ export default function ApproverHistoryClient({ sortedDepts, grouped, empSortMap
                               )}
                             </td>
 
-                            <td className="px-5 py-3.5">
-                              <div className="text-gray-800 truncate max-w-[250px]">
+                            {/* ⭐️ 사유 열: 넓은 공간에서 자연스럽게 줄바꿈되도록 설정 */}
+                            <td className="px-5 py-3.5 min-w-[400px] break-keep whitespace-normal">
+                              <div className="text-gray-800 leading-relaxed">
                                 {!item.isLeave && item.req.title && (
                                   <span className="font-bold mr-1.5">[{item.req.title}]</span>
                                 )}
                                 {item.req.reason || <span className="text-gray-400">-</span>}
                               </div>
                               {item.comment && (
-                                <div className="text-xs text-gray-500 mt-1.5 flex items-start gap-1 bg-gray-50 p-1.5 rounded w-fit max-w-full truncate border border-gray-100">
-                                  <MessageSquare className="w-3.5 h-3.5 shrink-0 text-gray-400" /> {item.comment}
+                                <div className="text-xs text-gray-500 mt-1.5 flex items-start gap-1 bg-gray-50 p-1.5 rounded w-fit border border-gray-100">
+                                  <MessageSquare className="w-3.5 h-3.5 shrink-0 text-gray-400 mt-0.5" /> 
+                                  <span className="break-keep">{item.comment}</span>
                                 </div>
                               )}
                             </td>
 
-                            <td className="px-5 py-3.5 text-gray-500 text-xs font-medium">
+                            <td className="px-5 py-3.5 text-gray-500 text-xs font-medium whitespace-nowrap">
                               {item.req.created_at ? new Date(item.req.created_at).toLocaleDateString('ko-KR') : '-'}
                             </td>
 
-                            <td className="px-5 py-3.5 text-center">{renderStatusBadge(item.status)}</td>
-                            <td className="px-5 py-3.5 text-gray-500 text-xs font-medium">
+                            <td className="px-5 py-3.5 text-center whitespace-nowrap">{renderStatusBadge(item.status)}</td>
+                            
+                            <td className="px-5 py-3.5 text-gray-500 text-xs font-medium whitespace-nowrap">
                               {item.status === 'pending' ? '-' : (item.decided_at ? new Date(item.decided_at).toLocaleDateString('ko-KR') : '-')}
                             </td>
                           </tr>

@@ -1,44 +1,47 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { User, Home, Plane, CalendarHeart, Loader2, Palmtree, Briefcase } from "lucide-react";
+import { User, Home, Plane, CalendarHeart, Loader2, Palmtree, Briefcase, Clock } from "lucide-react"; 
 import { getDashboardData } from "@/app/actions/dashboard";
 import { format, parseISO, differenceInCalendarDays } from "date-fns";
 import { createClient } from "@/utils/supabase/client";
 
 export default function DashboardWidgets() {
   const [loading, setLoading] = useState(true);
+  
+  // ⭐️ 1. data 상태에 todayOvertimes 추가
   const [data, setData] = useState<{
     todayLeaves: any[];
     myNextLeave: any;
     upcomingEvents: any[];
-  }>({ todayLeaves: [], myNextLeave: null, upcomingEvents: [] });
+    todayOvertimes: any[];
+  }>({ todayLeaves: [], myNextLeave: null, upcomingEvents: [], todayOvertimes: [] });
 
-  // ⭐️ [State] 부서 필터 및 정렬 데이터
   const [selectedDept, setSelectedDept] = useState<string>("전체");
   const [dSorts, setDSorts] = useState<Record<string, number>>({});
   const [eSorts, setESorts] = useState<Record<string, number>>({});
+  
   const supabase = createClient();
 
   useEffect(() => {
     async function fetchData() {
       try {
-        // 1. 대시보드 데이터 호출
+        // ⭐️ 2. 서버 액션에서 모든 데이터(초과근무 포함)를 한 번에 가져옴
         const res = await getDashboardData();
         
-        // 공휴일과 직원 휴가를 합쳐서 1차 날짜순 정렬
         const mergedEvents = [
           ...res.holidays.map((h: any) => ({ ...h, type: 'holiday', date: h.date })),
           ...res.upcomingLeaves.map((l: any) => ({ ...l, type: 'leave', date: l.start_date }))
         ].sort((a, b) => a.date.localeCompare(b.date));
 
         setData({
-          todayLeaves: res.todayLeaves,
-          myNextLeave: res.myNextLeave,
-          upcomingEvents: mergedEvents
+          todayLeaves: res.todayLeaves || [],
+          myNextLeave: res.myNextLeave || null,
+          upcomingEvents: mergedEvents || [],
+          todayOvertimes: res.todayOvertimes || [] // 👈 서버에서 받은 초과근무 데이터 저장
         });
 
-        // 2. 정렬 설정(sort_settings) 호출
+        // 정렬 설정 호출
         const { data: sortData } = await supabase.from('sort_settings').select('*');
         if (sortData) {
           const ds: Record<string, number> = {};
@@ -50,6 +53,7 @@ export default function DashboardWidgets() {
           setDSorts(ds);
           setESorts(es);
         }
+
       } catch (e) {
         console.error(e);
       } finally {
@@ -59,14 +63,14 @@ export default function DashboardWidgets() {
     fetchData();
   }, [supabase]);
 
-  // ⭐️ [Logic] 부서 필터링 및 2차 정렬 적용
-  const { availableDepts, filteredTodayLeaves, filteredUpcomingEvents, activeDept } = useMemo(() => {
-    // 1. 존재하는 부서 목록 추출 (공휴일 제외)
+  // ⭐️ 3. useMemo 내부 로직을 data.todayOvertimes를 참조하도록 변경
+  const { availableDepts, filteredTodayLeaves, filteredUpcomingEvents, filteredTodayOvertimes, activeDept } = useMemo(() => {
     const depts = new Set<string>();
     data.todayLeaves.forEach(l => depts.add(l.profiles?.department || "소속 없음"));
     data.upcomingEvents.forEach(e => {
       if (e.type === 'leave') depts.add(e.profiles?.department || "소속 없음");
     });
+    data.todayOvertimes.forEach(ot => depts.add(ot.profiles?.department || "소속 없음"));
 
     const uniqueDepts = Array.from(depts);
     const sortedDepts = uniqueDepts.sort((a, b) => (dSorts[a] ?? 999) - (dSorts[b] ?? 999));
@@ -74,7 +78,6 @@ export default function DashboardWidgets() {
 
     const activeDept = availableDepts.includes(selectedDept) ? selectedDept : "전체";
 
-    // 2. 오늘의 휴가자 필터링 & 정렬
     let filteredToday = activeDept === "전체"
       ? data.todayLeaves
       : data.todayLeaves.filter(l => (l.profiles?.department || "소속 없음") === activeDept);
@@ -84,15 +87,23 @@ export default function DashboardWidgets() {
       const deptB = b.profiles?.department || "소속 없음";
       const dOrderA = dSorts[deptA] ?? 999;
       const dOrderB = dSorts[deptB] ?? 999;
-      
       if (dOrderA !== dOrderB) return dOrderA - dOrderB;
-      
-      const eOrderA = eSorts[a.user_id] ?? 999;
-      const eOrderB = eSorts[b.user_id] ?? 999;
-      return eOrderA - eOrderB;
+      return (eSorts[a.user_id] ?? 999) - (eSorts[b.user_id] ?? 999);
     });
 
-    // 3. 다가오는 일정 필터링 & 정렬 (공휴일은 부서 상관없이 항상 표시)
+    let filteredOvertimes = activeDept === "전체"
+      ? data.todayOvertimes
+      : data.todayOvertimes.filter(ot => (ot.profiles?.department || "소속 없음") === activeDept);
+
+    filteredOvertimes = [...filteredOvertimes].sort((a, b) => {
+      const deptA = a.profiles?.department || "소속 없음";
+      const deptB = b.profiles?.department || "소속 없음";
+      const dOrderA = dSorts[deptA] ?? 999;
+      const dOrderB = dSorts[deptB] ?? 999;
+      if (dOrderA !== dOrderB) return dOrderA - dOrderB;
+      return (eSorts[a.user_id] ?? 999) - (eSorts[b.user_id] ?? 999);
+    });
+
     let filteredUpcoming = data.upcomingEvents.filter(e => {
       if (e.type === 'holiday') return true;
       if (activeDept === "전체") return true;
@@ -100,37 +111,26 @@ export default function DashboardWidgets() {
     });
 
     filteredUpcoming = [...filteredUpcoming].sort((a, b) => {
-      // 1순위: 날짜순
       if (a.date !== b.date) return a.date.localeCompare(b.date);
-      
-      // 2순위: 같은 날짜면 공휴일 우선
       if (a.type === 'holiday' && b.type !== 'holiday') return -1;
       if (a.type !== 'holiday' && b.type === 'holiday') return 1;
       if (a.type === 'holiday' && b.type === 'holiday') return 0;
 
-      // 3순위: 부서 및 직원 정렬
       const deptA = a.profiles?.department || "소속 없음";
       const deptB = b.profiles?.department || "소속 없음";
-      const dOrderA = dSorts[deptA] ?? 999;
-      const dOrderB = dSorts[deptB] ?? 999;
-      
-      if (dOrderA !== dOrderB) return dOrderA - dOrderB;
-      
-      const eOrderA = eSorts[a.user_id] ?? 999;
-      const eOrderB = eSorts[b.user_id] ?? 999;
-      return eOrderA - eOrderB;
+      if ((dSorts[deptA] ?? 999) !== (dSorts[deptB] ?? 999)) return (dSorts[deptA] ?? 999) - (dSorts[deptB] ?? 999);
+      return (eSorts[a.user_id] ?? 999) - (eSorts[b.user_id] ?? 999);
     });
 
-    // UI에는 최대 10개까지만 표시
     return { 
       availableDepts, 
       filteredTodayLeaves: filteredToday, 
+      filteredTodayOvertimes: filteredOvertimes,
       filteredUpcomingEvents: filteredUpcoming.slice(0, 10), 
       activeDept 
     };
-  }, [data, selectedDept, dSorts, eSorts]);
+  }, [data, selectedDept, dSorts, eSorts]); // 👈 의존성 배열 정리
 
-  // 휴가 타입 스타일
   const getLeaveStyle = (type: string) => {
     if (type.includes("재택")) return { bg: "bg-green-50", border: "border-green-100", iconBg: "bg-green-200", iconText: "text-green-700", text: "text-green-600", badge: "text-green-700", Icon: Home, label: "WFH" };
     if (type.includes("외근") || type.includes("출장")) return { bg: "bg-blue-50", border: "border-blue-100", iconBg: "bg-blue-200", iconText: "text-blue-700", text: "text-blue-600", badge: "text-blue-700", Icon: Plane, label: "Trip" };
@@ -144,13 +144,12 @@ export default function DashboardWidgets() {
 
   if (loading) {
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6 min-h-[300px]">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex items-center justify-center h-[340px]">
-          <Loader2 className="w-8 h-8 animate-spin text-gray-300" />
-        </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex items-center justify-center h-[340px]">
-          <Loader2 className="w-8 h-8 animate-spin text-gray-300" />
-        </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6 min-h-[300px]">
+        {[1, 2, 3].map(i => (
+          <div key={i} className="bg-white rounded-xl shadow-sm border border-gray-100 flex items-center justify-center h-[340px]">
+            <Loader2 className="w-8 h-8 animate-spin text-gray-300" />
+          </div>
+        ))}
       </div>
     );
   }
@@ -158,7 +157,6 @@ export default function DashboardWidgets() {
   return (
     <div className="mt-6 flex flex-col gap-4">
       
-      {/* ⭐️ 부서 필터 탭 (Pill) */}
       {availableDepts.length > 1 && (
         <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
           {availableDepts.map(dept => (
@@ -177,7 +175,7 @@ export default function DashboardWidgets() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
         {/* 1. 오늘의 휴가자 */}
         <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col h-[340px]">
@@ -228,7 +226,52 @@ export default function DashboardWidgets() {
           </div>
         </div>
 
-        {/* 2. 주요 일정 & D-Day */}
+        {/* 2. 오늘의 초과근무자 */}
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col h-[340px]">
+          <div className="flex justify-between items-start mb-4 shrink-0">
+            <h3 className="font-bold text-gray-800 flex items-center gap-2">
+              <Clock className="w-5 h-5 text-purple-600" />
+              오늘의 초과근무자
+            </h3>
+            <span className="bg-purple-100 text-purple-700 text-xs font-bold px-2 py-1 rounded-full">
+              {filteredTodayOvertimes.length}명
+            </span>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar space-y-3 min-h-0">
+            {filteredTodayOvertimes.length > 0 ? (
+              filteredTodayOvertimes.map((ot: any) => (
+                <div key={ot.id} className="flex items-center justify-between p-3 rounded-lg border bg-purple-50 border-purple-100">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-8 h-8 rounded-full bg-purple-200 flex items-center justify-center text-purple-700 font-bold text-xs shrink-0">
+                      {ot.profiles?.name?.[0] || '?'}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-sm font-bold text-gray-800">
+                        {ot.profiles?.name} <span className="text-xs font-normal text-gray-500">{ot.profiles?.position}</span>
+                      </div>
+                      <div className="text-xs text-purple-600 font-medium truncate">
+                        {ot.profiles?.department || '소속 없음'} {ot.reason ? `• ${ot.reason}` : ''}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 text-xs bg-white px-2 py-1 rounded text-purple-700 font-bold shadow-sm shrink-0">
+                    {ot.start_time?.slice(0, 5)} ~ {ot.end_time?.slice(0, 5)}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-gray-400 gap-2">
+                <Clock className="w-8 h-8 opacity-20" />
+                <span className="text-sm">
+                  {activeDept === "전체" ? "오늘 초과근무자가 없습니다." : `${activeDept} 초과근무자가 없습니다.`}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 3. 주요 일정 & D-Day */}
         <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col h-[340px]">
           <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2 shrink-0">
             <CalendarHeart className="w-5 h-5 text-pink-500" />
@@ -236,8 +279,6 @@ export default function DashboardWidgets() {
           </h3>
 
           <div className="flex-1 flex flex-col min-h-0">
-            
-            {/* D-Day 카드 */}
             <div className="mb-4 bg-gradient-to-r from-purple-500 to-indigo-600 rounded-lg p-4 text-white shadow-md relative overflow-hidden group shrink-0">
               <div className="absolute right-0 top-0 opacity-10 transform translate-x-2 -translate-y-2 group-hover:scale-110 transition-transform">
                 <Plane className="w-24 h-24" />
@@ -264,7 +305,6 @@ export default function DashboardWidgets() {
               </div>
             </div>
 
-            {/* 리스트 */}
             <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar divide-y divide-gray-100">
               {filteredUpcomingEvents.length > 0 ? (
                 filteredUpcomingEvents.map((event: any, idx: number) => {

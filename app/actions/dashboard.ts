@@ -143,16 +143,34 @@ export async function getDashboardData() {
       .lte("date", futureDateStr)
       .order("date", { ascending: true });
 
+    // ⭐️ 4. [오늘의 초과근무] 조회 (여기를 추가해 주세요!)
+    const { data: todayOvertimes, error: otError } = await supabase
+      .from("overtime_requests")
+      .select(`
+        id, user_id, start_time, end_time, reason,
+        profiles!inner ( name, department, position )
+      `)
+      .eq("work_date", kstDateStr)
+      .eq("status", "approved")
+      .neq("profiles.department","외주" )
+      .neq("request_type", "cancel");
+
+    if (otError) {
+      console.error("🚨 초과근무 데이터 조회 에러:", otError);
+    }
+
+    // ⭐️ return 객체에 todayOvertimes 추가
     return {
       todayLeaves,
       myNextLeave,
       holidays: holidays || [],
-      upcomingLeaves
+      upcomingLeaves,
+      todayOvertimes: todayOvertimes || [] 
     };
 
   } catch (error) {
     console.error("대시보드 데이터 조회 실패:", error);
-    return { todayLeaves: [], myNextLeave: null, holidays: [], upcomingLeaves: [] };
+    return { todayLeaves: [], myNextLeave: null, holidays: [], upcomingLeaves: [], todayOvertimes: [] };
   }
 }
 

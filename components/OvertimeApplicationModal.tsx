@@ -184,7 +184,10 @@ export default function OvertimeApplicationModal({ isOpen, onClose, onSuccess, i
 
   // 2. 변경/취소 시 원본 초과근무 로드
   useEffect(() => {
-    if (!isViewMode && (requestType === 'update' || requestType === 'cancel') && isOpen) {
+    // ⭐️ 핵심 수정: View 모드이거나 모달이 닫혀있으면 아래 초기화 로직을 절대 실행하지 않음!
+    if (isViewMode || !isOpen) return;
+
+    if (requestType === 'update' || requestType === 'cancel') {
       supabase.auth.getUser().then(async ({ data: { user } }) => {
         if (!user) return;
         const { data } = await supabase.from("overtime_requests").select("*").eq("user_id", user.id).order("created_at", { ascending: false });

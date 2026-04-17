@@ -77,7 +77,8 @@ export default async function ApproverHistoryPage({
 
   return (
     <main className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-5xl mx-auto space-y-8">
+      {/* ⭐️ max-w-5xl mx-auto를 지우고 w-full로 변경! */}
+      <div className="w-full space-y-8">
         
         {/* 상단 헤더 영역 */}
         <div className="flex items-center justify-between bg-white p-5 rounded-xl shadow-sm border border-gray-100">
