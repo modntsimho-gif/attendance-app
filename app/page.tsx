@@ -21,6 +21,56 @@ export default async function DashboardPage() {
     .eq("id", user.id)
     .single();
 
+  // ⭐️ 1.5 올해 기준 실시간 연차/보상휴가 계산 로직 추가
+  const currentYear = new Date().getFullYear();
+  const yearStart = `${currentYear}-01-01`;
+  const yearEnd = `${currentYear}-12-31`;
+
+  const [allocRes, leavesRes, overtimesRes] = await Promise.all([
+    // ① 올해 부여된 총 연차
+    supabase
+      .from("annual_leave_allocations")
+      .select("total_days")
+      .eq("user_id", user.id)
+      .eq("year", currentYear)
+      .maybeSingle(),
+    // ② 올해 승인된 휴가 내역 (취소 제외)
+    supabase
+      .from("leave_requests")
+      .select("leave_type, total_leave_days")
+      .eq("user_id", user.id)
+      .eq("status", "approved")
+      .neq("request_type", "cancel")
+      .gte("start_date", yearStart)
+      .lte("start_date", yearEnd),
+    // ③ 올해 승인된 초과근무 내역 (취소 제외)
+    supabase
+      .from("overtime_requests")
+      .select("recognized_days, recognized_hours")
+      .eq("user_id", user.id)
+      .eq("status", "approved")
+      .neq("request_type", "cancel")
+      .gte("work_date", yearStart)
+      .lte("work_date", yearEnd)
+  ]);
+
+  const leaves = leavesRes.data || [];
+  const overtimes = overtimesRes.data || [];
+
+  // 📊 실시간 합산 계산
+  const calculatedTotalLeave = allocRes.data ? allocRes.data.total_days : (profile?.total_leave_days || 0);
+  
+  const calculatedUsedLeave = leaves
+    .filter(l => ['연차', 'annual', '반차', '반반차'].includes(l.leave_type))
+    .reduce((sum, l) => sum + Number(l.total_leave_days || 0), 0);
+
+  const calculatedExtraTotal = overtimes
+    .reduce((sum, o) => sum + Number(o.recognized_days || (o.recognized_hours ? o.recognized_hours / 8 : 0)), 0);
+
+  const calculatedExtraUsed = leaves
+    .filter(l => l.leave_type?.includes('대체휴무'))
+    .reduce((sum, l) => sum + Number(l.total_leave_days || 0), 0);
+
   // 2. [본인] 연차 신청 건수 (대기중)
   const { count: leaveRequestCount } = await supabase
     .from("leave_requests")
@@ -87,16 +137,13 @@ export default async function DashboardPage() {
       
       // 권한 정보
       role={profile?.role} 
-      // ⭐️ [수정] 부서가 "외주"일 경우에도 결재권자 권한 부여
       isApprover={profile?.is_approver || profile?.department === "외주" || false} 
       
-      // 기본 연차
-      totalLeave={profile?.total_leave_days || 0}
-      usedLeave={profile?.used_leave_days || 0}
-      
-      // 보상 휴가 (DB 값 그대로 사용)
-      extraTotalLeave={profile?.extra_leave_days || 0}
-      extraUsedLeave={profile?.extra_used_leave_days || 0}
+      // ⭐️ [수정됨] 실시간으로 계산된 완벽한 데이터 전달
+      totalLeave={calculatedTotalLeave}
+      usedLeave={calculatedUsedLeave}
+      extraTotalLeave={calculatedExtraTotal}
+      extraUsedLeave={calculatedExtraUsed}
 
       // 카운트 (본인 신청 내역)
       leaveRequestCount={leaveRequestCount || 0}
