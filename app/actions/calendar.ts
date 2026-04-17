@@ -96,7 +96,7 @@ export async function getCalendarEvents(
   }
   const { data: allLeaves } = await leavesQuery;
 
-  // 2.5 초과근무 전체 조회
+  // 2.5 초과근무 전체 조회 (의도하신 테스트용 '외주악' 유지)
   let overtimesQuery = supabase
     .from("overtime_requests")
     .select("*, profiles!inner(name, position, department)")
@@ -127,18 +127,20 @@ export async function getCalendarEvents(
     });
   }
 
-  // 5. 직급 및 직원 정렬 기준 통합 조회
+  // ⭐️ 5. 직급, 부서, 직원 정렬 기준 통합 조회 (department 추가)
   const { data: sortData } = await supabase
     .from("sort_settings")
     .select("target_type, target_id, sort_order")
-    .in("target_type", ["position", "employee"]);
+    .in("target_type", ["position", "department", "employee"]);
 
   const pSortMap = new Map<string, number>();
+  const dSortMap = new Map<string, number>(); // 부서 맵 추가
   const eSortMap = new Map<string, number>();
 
   if (sortData) {
     sortData.forEach(s => {
       if (s.target_type === 'position') pSortMap.set(s.target_id, s.sort_order);
+      if (s.target_type === 'department') dSortMap.set(s.target_id, s.sort_order); // 부서 데이터 세팅
       if (s.target_type === 'employee') eSortMap.set(s.target_id, s.sort_order);
     });
   }
@@ -172,31 +174,35 @@ export async function getCalendarEvents(
     };
   });
 
-  // ⭐️ 7.5 데이터 가공 (초과근무)
+  // 7.5 데이터 가공 (초과근무)
   const formattedOvertimes = finalOvertimes.map(ot => {
     const userName = ot.profiles?.name || "알 수 없음";
     const targetUserId = ot.user_id;
-    
-    // 연차와 완벽하게 동일한 색상 로직 적용
     const finalColor = customColorMap.get(targetUserId) || getDefaultUserColor(targetUserId);
 
     return {
       ...ot,
       user_name: userName,
       department: ot.profiles?.department || "소속 없음",
-      // ⭐️ 요청하신 텍스트 포맷 적용
       title: `[${userName}] 초과근무 ${ot.total_hours}시간`,
       color: finalColor, 
       _pos: ot.profiles?.position || ""
     };
   });
 
-  // 8. 직급 ➡️ 직원 순서로 정렬 적용
+  // ⭐️ 8. 직급 ➡️ 부서 ➡️ 직원 순서로 3단계 정렬 적용
   const sortLogic = (a: any, b: any) => {
+    // 1순위: 직급 (Position)
     const pOrderA = pSortMap.get(a._pos) ?? 999;
     const pOrderB = pSortMap.get(b._pos) ?? 999;
     if (pOrderA !== pOrderB) return pOrderA - pOrderB;
 
+    // 2순위: 부서 (Department)
+    const dOrderA = dSortMap.get(a.department) ?? 999;
+    const dOrderB = dSortMap.get(b.department) ?? 999;
+    if (dOrderA !== dOrderB) return dOrderA - dOrderB;
+
+    // 3순위: 직원 (Employee)
     const eOrderA = eSortMap.get(a.user_id) ?? 999;
     const eOrderB = eSortMap.get(b.user_id) ?? 999;
     return eOrderA - eOrderB;
