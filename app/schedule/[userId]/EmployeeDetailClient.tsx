@@ -137,24 +137,29 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
               <button className={`flex-1 sm:flex-none px-6 py-2 rounded-md text-sm font-bold whitespace-nowrap transition-colors ${activeTab === 'leave' ? 'bg-blue-50 text-blue-700' : 'text-gray-500 hover:bg-gray-50'}`} onClick={() => setActiveTab('leave')}>휴가 내역 ({groupedLeaves.length})</button>
               <button className={`flex-1 sm:flex-none px-6 py-2 rounded-md text-sm font-bold whitespace-nowrap transition-colors ${activeTab === 'overtime' ? 'bg-orange-50 text-orange-700' : 'text-gray-500 hover:bg-gray-50'}`} onClick={() => setActiveTab('overtime')}>초과근무 이력 ({groupedOvertimes.length})</button>
             </div>
+            
             <div className="flex flex-col sm:flex-row items-end sm:items-center gap-3 w-full sm:w-auto">
-              {activeTab === 'leave' && (
-                <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer bg-white border border-gray-200 px-3 py-2 rounded-lg shadow-sm hover:bg-blue-50 transition-colors">
-                  <input type="checkbox" checked={showAnnualLeaveOnly} onChange={(e) => setShowAnnualLeaveOnly(e.target.checked)} className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer" />
-                  <span className="font-medium">연차만 보기</span>
-                </label>
-              )}
-              {activeTab === 'overtime' && (
-                <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer bg-white border border-gray-200 px-3 py-2 rounded-lg shadow-sm hover:bg-orange-50 transition-colors">
-                  <input type="checkbox" checked={showRemainingOvertimeOnly} onChange={(e) => setShowRemainingOvertimeOnly(e.target.checked)} className="w-4 h-4 text-orange-600 rounded border-gray-300 focus:ring-orange-500 cursor-pointer" />
-                  <span className="font-medium">잔여 시간 있는 건만</span>
-                </label>
-              )}
               
-              <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer bg-white border border-gray-200 px-3 py-2 rounded-lg shadow-sm hover:bg-gray-50 transition-colors">
-                <input type="checkbox" checked={excludeCancelled} onChange={(e) => setExcludeCancelled(e.target.checked)} className="w-4 h-4 text-gray-600 rounded border-gray-300 focus:ring-gray-500 cursor-pointer" />
-                <span className="font-medium">취소건 제외</span>
-              </label>
+              {/* ⭐️ 체크박스 2개를 묶어서 모바일에서 한 줄(flex-row)로 배치 */}
+              <div className="flex flex-row items-center gap-2 w-full sm:w-auto">
+                {activeTab === 'leave' && (
+                  <label className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-xs sm:text-sm text-gray-700 cursor-pointer bg-white border border-gray-200 px-2 sm:px-3 py-2 rounded-lg shadow-sm hover:bg-blue-50 transition-colors">
+                    <input type="checkbox" checked={showAnnualLeaveOnly} onChange={(e) => setShowAnnualLeaveOnly(e.target.checked)} className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer" />
+                    <span className="font-medium whitespace-nowrap">연차만 보기</span>
+                  </label>
+                )}
+                {activeTab === 'overtime' && (
+                  <label className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-xs sm:text-sm text-gray-700 cursor-pointer bg-white border border-gray-200 px-2 sm:px-3 py-2 rounded-lg shadow-sm hover:bg-orange-50 transition-colors">
+                    <input type="checkbox" checked={showRemainingOvertimeOnly} onChange={(e) => setShowRemainingOvertimeOnly(e.target.checked)} className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-orange-600 rounded border-gray-300 focus:ring-orange-500 cursor-pointer" />
+                    <span className="font-medium whitespace-nowrap">잔여 시간만</span>
+                  </label>
+                )}
+                
+                <label className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-xs sm:text-sm text-gray-700 cursor-pointer bg-white border border-gray-200 px-2 sm:px-3 py-2 rounded-lg shadow-sm hover:bg-gray-50 transition-colors">
+                  <input type="checkbox" checked={excludeCancelled} onChange={(e) => setExcludeCancelled(e.target.checked)} className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-600 rounded border-gray-300 focus:ring-gray-500 cursor-pointer" />
+                  <span className="font-medium whitespace-nowrap">취소건 제외</span>
+                </label>
+              </div>
 
               <div className="flex items-center bg-white border border-gray-200 rounded-lg px-3 py-2 shadow-sm w-full sm:w-auto">
                 <Search className="w-4 h-4 text-gray-400 mr-2 shrink-0" />
