@@ -77,9 +77,15 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
   const [selectedOvertime, setSelectedOvertime] = useState<any>(null);
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
   const [isOvertimeModalOpen, setIsOvertimeModalOpen] = useState(false);
+  const [showAnnualLeaveOnly, setShowAnnualLeaveOnly] = useState(false);
 
+  
   const { filteredLeaves, filteredOvertimes, currentYearStats } = useMemo(() => {
-    const fL = leaves.filter((l: any) => (!startDate || l.start_date >= startDate) && (!endDate || l.start_date <= endDate));
+    const fL = leaves.filter((l: any) => {
+      const matchDate = (!startDate || l.start_date >= startDate) && (!endDate || l.start_date <= endDate);
+      const matchType = !showAnnualLeaveOnly || ['연차', 'annual', '반차', '반반차'].includes(l.leave_type);
+      return matchDate && matchType;
+    });
     const fO = overtimes.filter((o: any) => (!startDate || o.work_date >= startDate) && (!endDate || o.work_date <= endDate) && (!showRemainingOvertimeOnly || Number(o.recognized_hours) > Number(o.used_hours)));
     
     const alloc = allocations.find((a: any) => a.year === currentYear);
@@ -88,7 +94,7 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
     const used = Math.max(Number(profile.used_leave_days || 0), usedA);
 
     return { filteredLeaves: fL, filteredOvertimes: fO, currentYearStats: { total, used, remaining: total - used } };
-  }, [startDate, endDate, showRemainingOvertimeOnly, leaves, overtimes, allocations, profile, currentYear]);
+  }, [startDate, endDate, showRemainingOvertimeOnly, showAnnualLeaveOnly, leaves, overtimes, allocations, profile, currentYear]);
 
   const groupedLeaves = useMemo(() => groupHistory(filteredLeaves, 'id', 'original_leave_request_id'), [filteredLeaves]);
   const groupedOvertimes = useMemo(() => groupHistory(filteredOvertimes, 'id', 'original_overtime_request_id'), [filteredOvertimes]);
@@ -96,7 +102,7 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
   return (
     <>
       <main className="min-h-screen bg-gray-50 p-4 sm:p-8">
-        <div className="max-w-6xl mx-auto space-y-6">
+        <div className="max-w-7xl mx-auto space-y-8">
           <Link href="/schedule" className="inline-flex items-center gap-2 text-gray-500 hover:text-gray-900 transition-colors text-sm font-medium"><ArrowLeft className="w-4 h-4" /> 목록으로</Link>
 
           <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
@@ -122,6 +128,12 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
               <button className={`flex-1 sm:flex-none px-6 py-2 rounded-md text-sm font-bold whitespace-nowrap transition-colors ${activeTab === 'overtime' ? 'bg-orange-50 text-orange-700' : 'text-gray-500 hover:bg-gray-50'}`} onClick={() => setActiveTab('overtime')}>초과근무 이력 ({groupedOvertimes.length})</button>
             </div>
             <div className="flex flex-col sm:flex-row items-end sm:items-center gap-3 w-full sm:w-auto">
+              {activeTab === 'leave' && (
+                <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer bg-white border border-gray-200 px-3 py-2 rounded-lg shadow-sm hover:bg-blue-50 transition-colors">
+                  <input type="checkbox" checked={showAnnualLeaveOnly} onChange={(e) => setShowAnnualLeaveOnly(e.target.checked)} className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer" />
+                  <span className="font-medium">연차만 보기</span>
+                </label>
+              )}
               {activeTab === 'overtime' && (
                 <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer bg-white border border-gray-200 px-3 py-2 rounded-lg shadow-sm hover:bg-orange-50 transition-colors">
                   <input type="checkbox" checked={showRemainingOvertimeOnly} onChange={(e) => setShowRemainingOvertimeOnly(e.target.checked)} className="w-4 h-4 text-orange-600 rounded border-gray-300 focus:ring-orange-500 cursor-pointer" />
@@ -130,7 +142,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
               )}
               <div className="flex items-center bg-white border border-gray-200 rounded-lg px-3 py-2 shadow-sm w-full sm:w-auto">
                 <Search className="w-4 h-4 text-gray-400 mr-2 shrink-0" />
-                {/* ⭐️ 텍스트 색상(text-gray-900)과 배경색(bg-white) 명시적 지정 */}
                 <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="text-sm outline-none text-gray-900 bg-white w-full" />
                 <span className="text-gray-300 mx-2">~</span>
                 <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="text-sm outline-none text-gray-900 bg-white w-full" />
@@ -142,9 +153,18 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
             {/* 🖥️ PC 뷰 */}
             <div className="hidden md:block overflow-x-auto">
               {activeTab === 'leave' ? (
-                <table className="w-full text-sm text-left whitespace-nowrap">
+                <table className="w-full table-fixed text-sm text-left whitespace-nowrap">
                   <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-medium">
-                    <tr><th className="px-4 py-3 text-center w-[80px]">상태</th><th className="px-4 py-3 text-center w-[100px]">신청유형</th><th className="px-4 py-3 w-[100px]">휴가 종류</th><th className="px-4 py-3 w-[240px]">휴가 일자</th><th className="px-4 py-3 text-right w-[100px]">차감일수</th><th className="px-4 py-3 w-[120px]">결재자</th><th className="px-4 py-3 min-w-[200px]">사유</th><th className="px-4 py-3 w-[200px]">원천 초과근무</th></tr>
+                    <tr>
+                      <th className="px-4 py-3 text-center w-[80px]">상태</th>
+                      <th className="px-4 py-3 text-center w-[100px]">신청유형</th>
+                      <th className="px-4 py-3 w-[100px]">휴가 종류</th>
+                      <th className="px-4 py-3 w-[240px]">휴가 일자</th>
+                      <th className="px-4 py-3 text-right w-[100px]">차감일수</th>
+                      <th className="px-4 py-3 w-[120px]">결재자</th>
+                      <th className="px-4 py-3">사유</th>
+                      <th className="px-4 py-3 w-[200px]">원천 초과근무</th>
+                    </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {groupedLeaves.length === 0 ? <tr><td colSpan={8} className="px-4 py-12 text-center text-gray-400">데이터가 없습니다.</td></tr> : groupedLeaves.map((group: any[], i: number) => {
@@ -159,7 +179,7 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                             <td className="px-4 py-3.5 font-bold">{latest.start_date} ~ {latest.end_date}</td>
                             <td className={`px-4 py-3.5 text-right font-bold ${latest.request_type === 'cancel' ? 'text-gray-300 line-through' : 'text-gray-900'}`}>-{Number(latest.total_leave_days).toFixed(2)}일</td>
                             <td className="px-4 py-3.5">{renderApprovers(latest.approval_lines)}</td>
-                            <td className="px-4 py-3.5 text-gray-600 truncate max-w-[200px]">{latest.reason || '-'}</td>
+                            <td className="px-4 py-3.5 text-gray-600 truncate">{latest.reason || '-'}</td>
                             <td className="px-4 py-3.5">{sourceOts.length > 0 ? <div className="flex gap-1.5 flex-wrap">{sourceOts.map((ot: any, idx: number) => <span key={idx} className="inline-flex items-center gap-1.5 bg-orange-50 border border-orange-200 text-orange-700 px-2 py-1 rounded-md text-xs font-bold hover:bg-orange-100 transition-all" onClick={(e) => { e.stopPropagation(); setSelectedOvertime(ot); setIsOvertimeModalOpen(true); }}><Link2 className="w-3.5 h-3.5" /> {ot.title}</span>)}</div> : <span className="text-gray-300">-</span>}</td>
                           </tr>
                           {history.map((h: any) => (
@@ -170,7 +190,7 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                               <td className="px-4 py-2 opacity-60">{h.start_date} ~ {h.end_date}</td>
                               <td className="px-4 py-2 text-right opacity-60">-{Number(h.total_leave_days).toFixed(2)}일</td>
                               <td className="px-4 py-2 opacity-60">{renderApprovers(h.approval_lines)}</td>
-                              <td className="px-4 py-2 truncate max-w-[200px] opacity-60">{h.reason || '-'}</td>
+                              <td className="px-4 py-2 truncate opacity-60">{h.reason || '-'}</td>
                               <td className="px-4 py-2 opacity-60">-</td>
                             </tr>
                           ))}
@@ -180,7 +200,7 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                   </tbody>
                 </table>
               ) : (
-                <table className="w-full text-sm text-left whitespace-nowrap">
+                <table className="w-full table-fixed text-sm text-left whitespace-nowrap">
                   <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-medium">
                     <tr>
                       <th className="px-4 py-3 text-center w-[80px]">상태</th>
@@ -192,7 +212,7 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                       <th className="px-4 py-3 text-right w-[90px]">사용일수</th>
                       <th className="px-4 py-3 text-right w-[120px]">잔여일(시간)</th>
                       <th className="px-4 py-3 w-[120px]">결재자</th>
-                      <th className="px-4 py-3 min-w-[250px]">제목 / 사유</th>
+                      <th className="px-4 py-3">제목 / 사유</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -211,7 +231,10 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                             <td className="px-4 py-3.5 text-right">{used > 0 ? <span className="text-red-500 font-bold bg-red-50 px-2 py-0.5 rounded text-xs">-{(used / 8).toFixed(2)}일</span> : <span className="text-gray-300">-</span>}</td>
                             <td className="px-4 py-3.5 text-right">{latest.request_type === 'cancel' ? <span className="text-gray-300">-</span> : <div className="flex flex-col items-end"><span className="font-bold">{(rem / 8).toFixed(2)}일</span><span className="text-[11px] text-gray-500 font-medium">({rem}h)</span></div>}</td>
                             <td className="px-4 py-3.5">{renderApprovers(latest.approval_lines)}</td>
-                            <td className="px-4 py-3.5 max-w-[350px]"><div className="font-medium truncate">{latest.title}</div><div className="text-xs text-gray-500 truncate mt-0.5">{latest.reason}</div></td>
+                            <td className="px-4 py-3.5">
+                              <div className="font-medium truncate">{latest.title}</div>
+                              <div className="text-xs text-gray-500 truncate mt-0.5">{latest.reason}</div>
+                            </td>
                           </tr>
                           {history.map((h: any) => (
                             <tr key={h.id} className="bg-gray-50/50 text-gray-400 text-xs hover:bg-gray-100/50 cursor-pointer transition-colors" onClick={() => { setSelectedOvertime(h); setIsOvertimeModalOpen(true); }}>
@@ -224,7 +247,7 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                               <td className="px-4 py-2 text-right opacity-60">-</td>
                               <td className="px-4 py-2 text-right opacity-60">-</td>
                               <td className="px-4 py-2 opacity-60">{renderApprovers(h.approval_lines)}</td>
-                              <td className="px-4 py-2 truncate max-w-[350px] opacity-60"><span className="text-gray-600">{h.title}</span><span className="text-gray-400 ml-1">/ {h.reason}</span></td>
+                              <td className="px-4 py-2 truncate opacity-60"><span className="text-gray-600">{h.title}</span><span className="text-gray-400 ml-1">/ {h.reason}</span></td>
                             </tr>
                           ))}
                         </React.Fragment>
@@ -237,6 +260,7 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
 
             {/* 📱 모바일 뷰 */}
             <div className="block md:hidden divide-y divide-gray-100">
+              {/* 모바일 뷰 코드는 기존과 동일하게 유지됩니다 */}
               {activeTab === 'leave' ? (
                 groupedLeaves.length === 0 ? <div className="p-8 text-center text-gray-400 text-sm">데이터가 없습니다.</div> : groupedLeaves.map((group: any[], i: number) => {
                   const latest = group[0], history = group.slice(1);

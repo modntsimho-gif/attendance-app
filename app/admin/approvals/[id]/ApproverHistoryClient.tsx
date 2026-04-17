@@ -148,7 +148,6 @@ export default function ApproverHistoryClient({ sortedDepts, grouped, empSortMap
         <div className="flex flex-wrap items-center justify-center gap-2 w-full xl:w-auto">
           <div className="relative flex-1 min-w-[120px] max-w-[160px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            {/* ⭐️ 텍스트 색상(text-gray-900)과 배경색(bg-white) 명시적 지정 */}
             <input 
               type="text" 
               placeholder="기안자 검색" 
@@ -160,7 +159,6 @@ export default function ApproverHistoryClient({ sortedDepts, grouped, empSortMap
           
           {/* 기간 선택 (Start ~ End) */}
           <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2 py-1 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500">
-            {/* ⭐️ 날짜 입력창 텍스트 색상 명시적 지정 */}
             <input 
               type="date" 
               value={searchStartDate}
@@ -206,19 +204,18 @@ export default function ApproverHistoryClient({ sortedDepts, grouped, empSortMap
               </div>
 
               {/* 🖥️ PC 뷰 */}
-              {/* ⭐️ 1. overflow-x-auto를 다시 추가하여 가로 스크롤 허용 */}
               <div className="hidden md:block overflow-x-auto custom-scrollbar">
                 
-                {/* ⭐️ 2. min-w-[1200px]를 추가하여 테이블을 좌우로 넓게 강제 확장 */}
-                <table className="w-full min-w-[1200px] text-sm text-left">
+                {/* ⭐️ 1. table-fixed 유지 */}
+                <table className="w-full min-w-[1200px] text-sm text-left table-fixed">
                   <thead className="bg-gray-50/50 border-b border-gray-200 text-gray-500 font-medium whitespace-nowrap">
                     <tr>
                       <th className="px-5 py-3 w-[120px]">기안자</th>
                       <th className="px-5 py-3 w-[100px]">구분</th>
                       <th className="px-5 py-3 w-[80px]">유형</th>
                       <th className="px-5 py-3 w-[220px]">사용기간</th>
-                      {/* ⭐️ 3. 사유 칸에 넉넉한 최소 너비(min-w-[400px]) 부여 */}
-                      <th className="px-5 py-3 min-w-[400px]">사유</th>
+                      {/* ⭐️ 2. 사유 칸 너비 400px 고정 */}
+                      <th className="px-5 py-3 w-[400px]">사유</th>
                       <th className="px-5 py-3 w-[100px]">상신일</th>
                       <th className="px-5 py-3 w-[80px] text-center">상태</th>
                       <th className="px-5 py-3 w-[120px]">결재일시</th>
@@ -275,20 +272,23 @@ export default function ApproverHistoryClient({ sortedDepts, grouped, empSortMap
                               )}
                             </td>
 
-                            {/* ⭐️ 사유 열: 넓은 공간에서 자연스럽게 줄바꿈되도록 설정 */}
-                            <td className="px-5 py-3.5 min-w-[400px] break-keep whitespace-normal">
-                              <div className="text-gray-800 leading-relaxed">
-                                {!item.isLeave && item.req.title && (
-                                  <span className="font-bold mr-1.5">[{item.req.title}]</span>
-                                )}
-                                {item.req.reason || <span className="text-gray-400">-</span>}
-                              </div>
-                              {item.comment && (
-                                <div className="text-xs text-gray-500 mt-1.5 flex items-start gap-1 bg-gray-50 p-1.5 rounded w-fit border border-gray-100">
-                                  <MessageSquare className="w-3.5 h-3.5 shrink-0 text-gray-400 mt-0.5" /> 
-                                  <span className="break-keep">{item.comment}</span>
+                            {/* ⭐️ 3. 핵심 해결책: td에 max-w-[400px]를 주고, 안쪽에 <div className="grid">를 감쌉니다. */}
+                            <td className="px-5 py-3.5 w-[400px] max-w-[400px]">
+                              <div className="grid">
+                                <div className="truncate text-gray-800" title={item.req.reason}>
+                                  {!item.isLeave && item.req.title && (
+                                    <span className="font-bold mr-1.5">[{item.req.title}]</span>
+                                  )}
+                                  {item.req.reason || <span className="text-gray-400">-</span>}
                                 </div>
-                              )}
+                                
+                                {item.comment && (
+                                  <div className="text-xs text-gray-500 mt-1.5 flex items-center gap-1 bg-gray-50 p-1.5 rounded border border-gray-100 w-full overflow-hidden">
+                                    <MessageSquare className="w-3.5 h-3.5 shrink-0 text-gray-400" /> 
+                                    <span className="truncate w-full" title={item.comment}>{item.comment}</span>
+                                  </div>
+                                )}
+                              </div>
                             </td>
 
                             <td className="px-5 py-3.5 text-gray-500 text-xs font-medium whitespace-nowrap">
