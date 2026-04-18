@@ -100,7 +100,7 @@ export async function getCalendarEvents(
   let overtimesQuery = supabase
     .from("overtime_requests")
     .select("*, profiles!inner(name, position, department)")
-    .eq("profiles.department", "외주악");
+    .eq("profiles.department", "외주");
     
   if (userId) {
     overtimesQuery = overtimesQuery.eq("user_id", userId);

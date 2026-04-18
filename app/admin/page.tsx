@@ -10,7 +10,7 @@ import {
 import { 
   Loader2, Save, X, Edit, UserCheck, Search, ArrowLeft, CalendarDays, 
   Trash2, Plus, Settings2, UserMinus, RotateCcw, AlertTriangle, Download, 
-  Upload, ListOrdered, Building2, GripVertical, CheckCircle2, ChevronRight, Tags, Lock
+  Upload, ListOrdered, Building2, GripVertical, CheckCircle2, ChevronRight, Tags, Lock, CloudDownload, Eye
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -63,6 +63,12 @@ export default function AdminPage() {
   const [allocLoading, setAllocLoading] = useState(false);
 
   const [newHoliday, setNewHoliday] = useState({ date: "", title: "" });
+  const [isSyncingHolidays, setIsSyncingHolidays] = useState(false);
+  
+  // ⭐️ 공휴일 미리보기 관련 상태 추가
+  const [previewHolidays, setPreviewHolidays] = useState<{date: string, title: string}[]>([]);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+
   const [newLeaveType, setNewLeaveType] = useState({ name: "", deduction_days: 1.0 });
   const [isResetting, setIsResetting] = useState(false);
   
@@ -72,6 +78,8 @@ export default function AdminPage() {
   const [orderedDepts, setOrderedDepts] = useState<string[]>([]);
   const [orderedEmpsByDept, setOrderedEmpsByDept] = useState<Record<string, Profile[]>>({});
   const [isSavingSort, setIsSavingSort] = useState(false);
+
+  const [holidayYearFilter, setHolidayYearFilter] = useState<string>(new Date().getFullYear().toString());
 
   useEffect(() => { setIsMounted(true); loadData(); }, []);
 
@@ -138,29 +146,19 @@ export default function AdminPage() {
     } catch { alert("오류가 발생했습니다."); } finally { setIsSavingSort(false); }
   };
 
-  // 연차 종류 드래그 앤 드롭 완료 핸들러
   const handleLeaveTypeDragEnd = async (result: DropResult) => {
     if (!result.destination) return;
-    
     const items = Array.from(leaveTypes);
     const [reorderedItem] = items.splice(result.source.index, 1);
     items.splice(result.destination.index, 0, reorderedItem);
-    
     setLeaveTypes(items);
 
     const updates = items.map((item, index) => ({
-      id: item.id,
-      name: item.name,
-      deduction_days: item.deduction_days,
-      is_active: item.is_active !== undefined ? item.is_active : true,
-      sort_order: index + 1
+      id: item.id, name: item.name, deduction_days: item.deduction_days,
+      is_active: item.is_active !== undefined ? item.is_active : true, sort_order: index + 1
     }));
-
     const { error } = await supabase.from("leave_types").upsert(updates);
-    if (error) {
-      alert("순서 저장 중 오류가 발생했습니다: " + error.message);
-      loadData();
-    }
+    if (error) { alert("순서 저장 중 오류가 발생했습니다: " + error.message); loadData(); }
   };
 
   const handleDownloadExcel = () => {
@@ -247,6 +245,59 @@ export default function AdminPage() {
     if (res.success) setHolidays((await getHolidays()) || []);
   };
 
+  // ⭐️ 1. API에서 데이터를 불러와서 미리보기 모달을 띄우는 함수
+  const handleFetchHolidaysPreview = async () => {
+    const currentYear = new Date().getFullYear();
+    setIsSyncingHolidays(true);
+    try {
+      const response = await fetch(`https://date.nager.at/api/v3/PublicHolidays/${currentYear}/KR`);
+      if (!response.ok) throw new Error("API 호출에 실패했습니다.");
+      
+      const apiHolidays = await response.json();
+      
+      // 이미 DB에 있는 날짜는 제외하고 새로운 날짜만 필터링
+      const newHolidays = apiHolidays
+        .filter((h: any) => !holidays.some(existing => existing.date === h.date))
+        .map((h: any) => ({ date: h.date, title: h.localName }));
+
+      if (newHolidays.length === 0) {
+        alert(`${currentYear}년도에 추가할 새로운 공휴일이 없습니다.\n(이미 모두 등록되어 있습니다.)`);
+        return;
+      }
+
+      // 미리보기 상태 업데이트 및 모달 열기
+      setPreviewHolidays(newHolidays);
+      setShowPreviewModal(true);
+    } catch (error) {
+      console.error(error);
+      alert("공휴일 데이터를 불러오는 중 오류가 발생했습니다.");
+    } finally {
+      setIsSyncingHolidays(false);
+    }
+  };
+
+  // ⭐️ 2. 미리보기 모달에서 '저장'을 눌렀을 때 DB에 저장하는 함수
+  const handleConfirmSyncHolidays = async () => {
+    setIsSyncingHolidays(true);
+    try {
+      let addedCount = 0;
+      for (const h of previewHolidays) {
+        await addHoliday(h.date, h.title);
+        addedCount++;
+      }
+
+      alert(`총 ${addedCount}개의 공휴일이 성공적으로 등록되었습니다.`);
+      setHolidays((await getHolidays()) || []);
+      setHolidayYearFilter(new Date().getFullYear().toString());
+      setShowPreviewModal(false); // 모달 닫기
+    } catch (error) {
+      console.error(error);
+      alert("공휴일을 저장하는 중 오류가 발생했습니다.");
+    } finally {
+      setIsSyncingHolidays(false);
+    }
+  };
+
   const handleAddLeaveType = async () => {
     if (!newLeaveType.name) return alert("연차 명칭을 입력해주세요.");
     const { error } = await supabase.from("leave_types").insert([{
@@ -260,21 +311,12 @@ export default function AdminPage() {
 
   const handleDeleteLeaveType = async (id: string, name: string) => {
     if (FIXED_LEAVE_TYPES.includes(name)) return alert("기본 연차 항목은 삭제할 수 없습니다.");
-    
-    const { count, error: checkError } = await supabase
-      .from("leave_requests")
-      .select("id", { count: 'exact', head: true })
-      .eq("leave_type", name);
-
+    const { count, error: checkError } = await supabase.from("leave_requests").select("id", { count: 'exact', head: true }).eq("leave_type", name);
     if (checkError) return alert("사용 이력 확인 중 오류가 발생했습니다.");
-
     if (count && count > 0) return alert(`'${name}' 항목은 이미 사용된 이력이 있어 삭제할 수 없습니다.\n(총 ${count}건 사용됨)`);
-
     if (!confirm(`'${name}' 항목을 정말 삭제하시겠습니까?`)) return;
-    
     const { error } = await supabase.from("leave_types").delete().eq("id", id);
-    if (error) alert("삭제 실패: " + error.message);
-    else loadData();
+    if (error) alert("삭제 실패: " + error.message); else loadData();
   };
 
   if (!isMounted || loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin text-indigo-400" /></div>;
@@ -450,37 +492,78 @@ export default function AdminPage() {
         )}
         
         {/* 3. 공휴일 관리 탭 */}
-        {activeTab === "holidays" && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in duration-300">
-             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 h-fit">
-              <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2"><Plus className="w-5 h-5 text-rose-500" /> 공휴일 추가</h3>
-              <div className="space-y-4">
-                <div><label className={labelBase}>날짜</label><input type="date" value={newHoliday.date} onChange={(e) => setNewHoliday({...newHoliday, date: e.target.value})} className={inputBase} /></div>
-                <div><label className={labelBase}>공휴일 명칭</label><input type="text" placeholder="예: 창립기념일" value={newHoliday.title} onChange={(e) => setNewHoliday({...newHoliday, title: e.target.value})} className={inputBase} /></div>
-                <button onClick={handleAddHoliday} className="w-full bg-rose-500 hover:bg-rose-600 text-white font-bold py-2.5 rounded-xl text-sm flex items-center justify-center gap-2 transition-colors"><Plus className="w-4 h-4" /> 추가하기</button>
-              </div>
-            </div>
-            <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col">
-              <div className="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center"><h3 className="font-bold text-gray-700 flex items-center gap-2"><CalendarDays className="w-4 h-4 text-rose-500" /> 등록된 공휴일 목록</h3><span className="text-xs font-bold bg-white px-2.5 py-1 rounded-md border border-gray-200 text-gray-500 shadow-sm">총 {holidays.length}개</span></div>
-              <div className="flex-1 overflow-y-auto max-h-[600px] p-0 custom-scrollbar">
-                <table className="w-full text-sm text-left">
-                  <thead className="bg-white text-gray-500 font-bold text-xs border-b border-gray-200 sticky top-0 z-10"><tr><th className="px-6 py-4">날짜</th><th className="px-6 py-4">명칭</th><th className="px-6 py-4 text-right">삭제</th></tr></thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {holidays.length > 0 ? holidays.map((holiday) => (
-                      <tr key={holiday.id} className="hover:bg-rose-50/30 transition-colors group">
-                        <td className="px-6 py-4 font-medium text-gray-900">{holiday.date} <span className="ml-2 text-xs text-gray-400 font-normal">({format(new Date(holiday.date), "EEE")})</span></td>
-                        <td className="px-6 py-4 text-gray-700">{holiday.title}</td>
-                        <td className="px-6 py-4 text-right"><button onClick={() => handleDeleteHoliday(holiday.id)} className="text-gray-300 hover:text-red-500 transition-colors p-1"><Trash2 className="w-4 h-4" /></button></td>
-                      </tr>
-                    )) : <tr><td colSpan={3} className="px-6 py-12 text-center text-gray-400">등록된 공휴일이 없습니다.</td></tr>}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
+        {activeTab === "holidays" && (() => {
+          const holidayYears = Array.from(new Set([
+            new Date().getFullYear().toString(),
+            ...holidays.map(h => h.date.substring(0, 4))
+          ])).sort((a, b) => Number(b) - Number(a));
 
-        {/* ⭐️ 4. 연차종류 관리 탭 (연차신청서 UI 및 Grid 드래그 앤 드롭) */}
+          const filteredHolidays = holidays
+            .filter(h => holidayYearFilter === "all" || h.date.startsWith(holidayYearFilter))
+            .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+          return (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in duration-300">
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 h-fit">
+                
+                <h3 className="font-bold text-gray-800 mb-2 flex items-center gap-2"><CloudDownload className="w-5 h-5 text-rose-500" /> 공휴일 자동 등록</h3>
+                <p className="text-xs text-gray-500 mb-4 leading-relaxed">API를 통해 올해의 법정 공휴일을 자동으로 불러와 저장합니다. (중복 제외)</p>
+                <button 
+                  onClick={handleFetchHolidaysPreview} // ⭐️ 클릭 시 미리보기 함수 실행
+                  disabled={isSyncingHolidays} 
+                  className="w-full bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 font-bold py-2.5 rounded-xl text-sm flex items-center justify-center gap-2 transition-colors mb-6 disabled:opacity-50"
+                >
+                  {isSyncingHolidays ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />} 
+                  {new Date().getFullYear()}년 공휴일 미리보기
+                </button>
+
+                <div className="h-px bg-gray-100 my-6"></div>
+
+                <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2"><Plus className="w-5 h-5 text-gray-400" /> 수동 추가</h3>
+                <div className="space-y-4">
+                  <div><label className={labelBase}>날짜</label><input type="date" value={newHoliday.date} onChange={(e) => setNewHoliday({...newHoliday, date: e.target.value})} className={inputBase} /></div>
+                  <div><label className={labelBase}>공휴일 명칭</label><input type="text" placeholder="예: 창립기념일" value={newHoliday.title} onChange={(e) => setNewHoliday({...newHoliday, title: e.target.value})} className={inputBase} /></div>
+                  <button onClick={handleAddHoliday} className="w-full bg-gray-800 hover:bg-gray-900 text-white font-bold py-2.5 rounded-xl text-sm flex items-center justify-center gap-2 transition-colors"><Plus className="w-4 h-4" /> 추가하기</button>
+                </div>
+              </div>
+
+              <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col">
+                <div className="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+                  <h3 className="font-bold text-gray-700 flex items-center gap-2"><CalendarDays className="w-4 h-4 text-rose-500" /> 등록된 공휴일 목록</h3>
+                  <div className="flex items-center gap-3">
+                    <select
+                      value={holidayYearFilter}
+                      onChange={(e) => setHolidayYearFilter(e.target.value)}
+                      className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:ring-2 focus:ring-rose-500 outline-none shadow-sm cursor-pointer"
+                    >
+                      <option value="all">전체 연도</option>
+                      {holidayYears.map(year => (
+                        <option key={year} value={year}>{year}년</option>
+                      ))}
+                    </select>
+                    <span className="text-xs font-bold bg-white px-2.5 py-1 rounded-md border border-gray-200 text-gray-500 shadow-sm">총 {filteredHolidays.length}개</span>
+                  </div>
+                </div>
+                <div className="flex-1 overflow-y-auto max-h-[600px] p-0 custom-scrollbar">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-white text-gray-500 font-bold text-xs border-b border-gray-200 sticky top-0 z-10"><tr><th className="px-6 py-4">날짜</th><th className="px-6 py-4">명칭</th><th className="px-6 py-4 text-right">삭제</th></tr></thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {filteredHolidays.length > 0 ? filteredHolidays.map((holiday) => (
+                        <tr key={holiday.id} className="hover:bg-rose-50/30 transition-colors group">
+                          <td className="px-6 py-4 font-medium text-gray-900">{holiday.date} <span className="ml-2 text-xs text-gray-400 font-normal">({format(new Date(holiday.date), "EEE")})</span></td>
+                          <td className="px-6 py-4 text-gray-700">{holiday.title}</td>
+                          <td className="px-6 py-4 text-right"><button onClick={() => handleDeleteHoliday(holiday.id)} className="text-gray-300 hover:text-red-500 transition-colors p-1"><Trash2 className="w-4 h-4" /></button></td>
+                        </tr>
+                      )) : <tr><td colSpan={3} className="px-6 py-12 text-center text-gray-400">해당 연도에 등록된 공휴일이 없습니다.</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* 4. 연차종류 관리 탭 */}
         {activeTab === "leaveTypes" && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in duration-300">
              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 h-fit">
@@ -521,7 +604,6 @@ export default function AdminPage() {
                         <div 
                           {...provided.droppableProps} 
                           ref={provided.innerRef} 
-                          // ⭐️ 연차신청서와 동일한 Grid 레이아웃 적용
                           className="grid grid-cols-2 md:grid-cols-3 gap-3"
                         >
                           {leaveTypes.map((lt, index) => (
@@ -530,7 +612,6 @@ export default function AdminPage() {
                                 <div
                                   ref={provided.innerRef}
                                   {...provided.draggableProps}
-                                  // ⭐️ 연차신청서와 동일한 Blue 테마 UI 적용
                                   className={`flex items-center justify-between p-3 border rounded-lg transition-all ${snapshot.isDragging ? 'bg-blue-50 border-blue-500 ring-1 ring-blue-500 shadow-lg z-50' : 'bg-white border-gray-200 hover:bg-gray-50'}`}
                                 >
                                   <div className="flex items-center gap-2 overflow-hidden">
@@ -637,6 +718,52 @@ export default function AdminPage() {
             <div className="p-5 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
               <button onClick={() => setEditingUser(null)} className="px-5 py-2.5 text-gray-600 bg-white border border-gray-300 hover:bg-gray-50 rounded-xl font-bold text-sm transition-colors">취소</button>
               <button onClick={handleSaveProfile} className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm flex items-center gap-2 transition-colors shadow-sm"><Save className="w-4 h-4" /> 정보 저장</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ⭐️ 공휴일 추가 미리보기 모달 */}
+      {showPreviewModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="bg-rose-600 p-5 flex justify-between items-center">
+              <h2 className="text-white font-bold text-lg flex items-center gap-2"><CalendarDays className="w-5 h-5 text-rose-200"/> 추가될 공휴일 미리보기</h2>
+              <button onClick={() => setShowPreviewModal(false)} className="text-rose-200 hover:text-white transition-colors"><X className="w-6 h-6" /></button>
+            </div>
+            
+            <div className="p-6">
+              <p className="text-sm text-gray-600 mb-4">
+                DB에 없는 <span className="font-bold text-rose-600">{previewHolidays.length}개</span>의 새로운 공휴일이 발견되었습니다. 아래 목록을 확인하고 저장해주세요.
+              </p>
+              
+              <div className="border border-gray-200 rounded-xl overflow-hidden max-h-[400px] overflow-y-auto custom-scrollbar">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-gray-50 text-gray-500 text-xs font-bold border-b border-gray-200 sticky top-0">
+                    <tr><th className="px-4 py-3">날짜</th><th className="px-4 py-3">명칭</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {previewHolidays.map((h, idx) => (
+                      <tr key={idx} className="hover:bg-rose-50/30 transition-colors">
+                        <td className="px-4 py-3 font-medium text-gray-900">{h.date}</td>
+                        <td className="px-4 py-3 text-gray-700">{h.title}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="p-5 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
+              <button onClick={() => setShowPreviewModal(false)} className="px-5 py-2.5 text-gray-600 bg-white border border-gray-300 hover:bg-gray-50 rounded-xl font-bold text-sm transition-colors">취소</button>
+              <button 
+                onClick={handleConfirmSyncHolidays} 
+                disabled={isSyncingHolidays}
+                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-sm flex items-center gap-2 transition-colors shadow-sm disabled:opacity-50"
+              >
+                {isSyncingHolidays ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} 
+                {previewHolidays.length}개 일괄 저장
+              </button>
             </div>
           </div>
         </div>
