@@ -92,16 +92,13 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
     const alloc = allocations.find((a: any) => a.year === currentYear);
     const total = alloc ? alloc.total_days : (profile.total_leave_days || 0);
 
-    // ⭐️ 프로필 값(Math.max) 제거 & 취소건 제외 & 관리자 직권 신청건 포함
     const used = fL
       .filter((l: any) => {
         const isThisYear = l.start_date?.startsWith(currentYear.toString());
         const isApproved = l.status === 'approved';
-        const isNotCancelled = l.request_type !== 'cancel'; // 취소 신청건 제외
+        const isNotCancelled = l.request_type !== 'cancel';
         const isAnnualType = ['연차', 'annual', '반차', '반반차'].includes(l.leave_type);
         
-        // 본인이 올린 것이든 관리자가 올린 것(l.requester_id !== profile.id)이든 
-        // 위 조건만 맞으면 모두 합산됩니다.
         return isThisYear && isApproved && isNotCancelled && isAnnualType;
       })
       .reduce((sum: number, l: any) => sum + Number(l.total_leave_days), 0);
@@ -109,6 +106,21 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
     return { filteredLeaves: fL, filteredOvertimes: fO, currentYearStats: { total, used, remaining: total - used } };
   }, [startDate, endDate, showRemainingOvertimeOnly, showAnnualLeaveOnly, leaves, overtimes, allocations, profile, currentYear]);
 
+  // ⭐️ 추가된 로직: 배열 데이터를 직접 계산하여 보상휴가(대체휴무) 누적치 산출
+  const extraStats = useMemo(() => {
+    // 1. 총 발생 보상휴가 (초과근무 인정 시간 합산)
+    const totalExtra = overtimes
+      .filter((o: any) => o.status === 'approved' && o.request_type !== 'cancel')
+      .reduce((sum: number, o: any) => sum + Number(o.recognized_days || (o.recognized_hours ? o.recognized_hours / 8 : 0)), 0);
+  
+    // 2. 총 사용 보상휴가 (초과근무 테이블의 used_hours 합산 ⭐️)
+    const usedExtra = overtimes
+      .filter((o: any) => o.status === 'approved' && o.request_type !== 'cancel')
+      .reduce((sum: number, o: any) => sum + Number(o.used_hours ? o.used_hours / 8 : 0), 0);
+  
+    return { total: totalExtra, used: usedExtra, remaining: totalExtra - usedExtra };
+  }, [overtimes]); // leaves 의존성 제거
+  
   const groupedLeaves = useMemo(() => {
     const groups = groupHistory(filteredLeaves, 'id', 'original_leave_request_id');
     if (!excludeCancelled) return groups;
@@ -139,11 +151,13 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
               </div>
               <div className="flex-1 md:flex-none bg-white p-3 rounded-lg border border-gray-200 text-center min-w-[120px]">
                 <div className="text-xs text-gray-500 mb-1">잔여 보상휴가</div>
-                <div className="text-lg font-bold text-gray-900">{Number(profile.extra_leave_days - profile.extra_used_leave_days).toFixed(2).replace(/\.0$/, '')}<span className="text-xs text-gray-400 ml-1">/ {Number(profile.extra_leave_days).toFixed(2).replace(/\.0$/, '')}</span></div>
+                {/* ⭐️ 수정된 로직: profile 대신 extraStats 활용 */}
+                <div className="text-lg font-bold text-gray-900">{Number(extraStats.remaining).toFixed(2).replace(/\.0$/, '')}<span className="text-xs text-gray-400 ml-1">/ {Number(extraStats.total).toFixed(2).replace(/\.0$/, '')}</span></div>
               </div>
             </div>
           </div>
 
+          {/* ... 이하 기존 UI 코드 동일 ... */}
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div className="flex bg-white border border-gray-200 p-1 rounded-lg w-full sm:w-auto shadow-sm">
               <button className={`flex-1 sm:flex-none px-6 py-2 rounded-md text-sm font-bold whitespace-nowrap transition-colors ${activeTab === 'leave' ? 'bg-blue-50 text-blue-700' : 'text-gray-500 hover:bg-gray-50'}`} onClick={() => setActiveTab('leave')}>휴가 내역 ({groupedLeaves.length})</button>

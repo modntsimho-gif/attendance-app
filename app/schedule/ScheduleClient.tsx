@@ -75,25 +75,23 @@ export default function ScheduleClient({
         )
         .reduce((sum, l) => sum + Number(l.total_leave_days), 0);
 
-      // 🟢 2. 보상 휴가(연차 외 휴가) 계산 - ⭐️ 연도 무관 누적 합산으로 복구!
+      // 🟢 2. 보상 휴가(연차 외 휴가) 계산 - ⭐️ 연도 무관 누적 합산
       const totalExtra = overtimes
         .filter(o => 
           o.user_id === emp.id && 
           o.status === 'approved' && 
           o.request_type !== 'cancel'
-          // ⭐️ o.work_date?.startsWith(yearStr) 제거됨 (누적)
         )
         .reduce((sum, o) => sum + Number(o.recognized_days || (o.recognized_hours ? o.recognized_hours / 8 : 0)), 0);
 
-      const usedExtra = leaves
-        .filter(l => 
-          l.user_id === emp.id && 
-          l.status === 'approved' && 
-          l.request_type !== 'cancel' && 
-          l.leave_type?.includes('대체휴무')
-          // ⭐️ l.start_date?.startsWith(yearStr) 제거됨 (누적)
+      // ⭐️ 수정됨: leaves 대신 overtimes의 used_hours를 합산하여 사용일수 계산
+      const usedExtra = overtimes
+        .filter(o => 
+          o.user_id === emp.id && 
+          o.status === 'approved' && 
+          o.request_type !== 'cancel'
         )
-        .reduce((sum, l) => sum + Number(l.total_leave_days || 0), 0);
+        .reduce((sum, o) => sum + Number(o.used_hours ? o.used_hours / 8 : 0), 0);
 
       return {
         ...emp,

@@ -26,7 +26,8 @@ export default async function DashboardPage() {
   const yearStart = `${currentYear}-01-01`;
   const yearEnd = `${currentYear}-12-31`;
 
-  const [allocRes, annualLeavesRes, extraLeavesRes, overtimesRes] = await Promise.all([
+  // 💡 불필요한 대체휴무 쿼리(extraLeavesRes)를 제거하고 성능을 최적화했습니다.
+  const [allocRes, annualLeavesRes, overtimesRes] = await Promise.all([
     // ① 올해 부여된 총 연차 (연도 제한 O)
     supabase
       .from("annual_leave_allocations")
@@ -46,19 +47,11 @@ export default async function DashboardPage() {
       .gte("start_date", yearStart)
       .lte("start_date", yearEnd),
       
-    // ③ 누적 사용한 '보상 휴가' (연도 제한 X - 전체 기간 합산)
-    supabase
-      .from("leave_requests")
-      .select("total_leave_days")
-      .eq("user_id", user.id)
-      .eq("status", "approved")
-      .neq("request_type", "cancel")
-      .ilike("leave_type", "%대체휴무%"),
-      
-    // ④ 누적 발생한 '초과근무' (연도 제한 X - 전체 기간 합산)
+    // ③ 누적 발생 및 사용한 '초과근무' (연도 제한 X - 전체 기간 합산)
+    // ⭐️ used_hours 필드를 추가로 불러옵니다.
     supabase
       .from("overtime_requests")
-      .select("recognized_days, recognized_hours")
+      .select("recognized_days, recognized_hours, used_hours")
       .eq("user_id", user.id)
       .eq("status", "approved")
       .neq("request_type", "cancel")
@@ -70,11 +63,13 @@ export default async function DashboardPage() {
   const calculatedUsedLeave = (annualLeavesRes.data || [])
     .reduce((sum, l) => sum + Number(l.total_leave_days || 0), 0);
 
+  // 🟢 총 발생 보상휴가 계산
   const calculatedExtraTotal = (overtimesRes.data || [])
     .reduce((sum, o) => sum + Number(o.recognized_days || (o.recognized_hours ? o.recognized_hours / 8 : 0)), 0);
 
-  const calculatedExtraUsed = (extraLeavesRes.data || [])
-    .reduce((sum, l) => sum + Number(l.total_leave_days || 0), 0);
+  // 🟢 총 사용 보상휴가 계산 (⭐️ 수정됨: overtimes의 used_hours를 8로 나누어 합산)
+  const calculatedExtraUsed = (overtimesRes.data || [])
+    .reduce((sum, o) => sum + Number(o.used_hours ? o.used_hours / 8 : 0), 0);
 
   // 2. [본인] 연차 신청 건수 (대기중)
   const { count: leaveRequestCount } = await supabase
