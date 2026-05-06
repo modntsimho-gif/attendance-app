@@ -17,23 +17,25 @@ const toDateStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).pa
 const getLocalToday = () => toDateStr(new Date());
 const formatTime = (t?: string) => t ? new Date(t).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '-';
 
-// ⭐️ 상태 판별 로직: 근무중 우선, 퇴근 후 휴가 표시, 주말 휴무 처리
-const getStatus = (leaveMap: Map<string, string>, uid: string, rec: any, dateStr: string) => {
+// ⭐️ 상태 판별 로직: 공휴일(holidaySet) 체크 추가 및 날짜 버그 방지(T00:00:00) 적용
+const getStatus = (leaveMap: Map<string, string>, holidaySet: Set<string>, uid: string, rec: any, dateStr: string) => {
   const hasLeave = leaveMap.has(uid);
   const leaveType = hasLeave ? leaveMap.get(uid)! : '';
-  const d = new Date(dateStr);
-  const isWeekend = d.getDay() === 0 || d.getDay() === 6; // 0: 일요일, 6: 토요일
+  const d = new Date(`${dateStr}T00:00:00`); 
+  const isWeekend = d.getDay() === 0 || d.getDay() === 6; 
+  const isHoliday = holidaySet.has(dateStr); // 공휴일 여부 확인
 
   if (rec?.clock_in) {
     if (!rec.clock_out) {
-      return '근무중'; // 출근만 한 상태면 무조건 근무중
+      return '근무중'; 
     } else {
-      // 퇴근까지 완료한 상태면 휴가(반차 등) 우선, 없으면 퇴근완료/자동마감
       return hasLeave ? leaveType : (rec.is_auto_checkout ? '자동마감' : '퇴근완료');
     }
   } else {
-    // 출근 기록이 없는 상태면 휴가 우선, 없으면 평일(미출근)/주말(휴무)
-    return hasLeave ? leaveType : (isWeekend ? '휴무' : '미출근');
+    if (hasLeave) return leaveType;
+    if (isHoliday) return '공휴일'; // ⭐️ 주말보다 공휴일을 먼저 체크하여 반환
+    if (isWeekend) return '휴무';
+    return '미출근';
   }
 };
 
@@ -47,7 +49,7 @@ const DeviceBadge = ({ device }: { device?: string | null }) => {
   );
 };
 
-// ⭐️ 휴무 상태 스타일 추가
+// ⭐️ 공휴일 상태 스타일 추가 (눈에 띄는 붉은 장미색)
 const StatusBadge = ({ status }: { status: string }) => {
   const style = 
     status === '근무중' ? 'bg-green-100 text-green-700' : 
@@ -55,6 +57,7 @@ const StatusBadge = ({ status }: { status: string }) => {
     status === '퇴근완료' ? 'bg-gray-100 text-gray-600' : 
     status === '미출근' ? 'bg-red-50 text-red-500' : 
     status === '휴무' ? 'bg-gray-50 text-gray-400 border border-gray-200' :
+    status === '공휴일' ? 'bg-rose-50 text-rose-600 border border-rose-100' :
     'bg-pink-50 text-pink-600 border border-pink-100';
     
   return <span className={`shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${style}`}>{status}</span>;
@@ -110,15 +113,20 @@ export default function AttendancePage() {
     (async () => {
       setIsLoading(true);
       try {
-        const [pRes, aRes, sRes, lRes] = await Promise.all([
+        // ⭐️ public_holidays 테이블 데이터 추가로 가져오기
+        const [pRes, aRes, sRes, lRes, hRes] = await Promise.all([
           supabase.from('profiles').select('id, name, department, position').is('resigned_at', null).neq("department", "외주"),
           supabase.from('attendance').select('user_id, clock_in, clock_out, is_auto_checkout, in_device, out_device').eq('date', selectedDate),
           supabase.from('sort_settings').select('*'),
-          supabase.from('leave_requests').select('*').lte('start_date', selectedDate).gte('end_date', selectedDate)
+          supabase.from('leave_requests').select('*').lte('start_date', selectedDate).gte('end_date', selectedDate),
+          supabase.from('public_holidays').select('date').eq('date', selectedDate)
         ]);
 
         const { dSorts, eSorts } = parseSorts(sRes.data || []);
         const leaveMap = processLeaves(lRes.data || [], selectedDate);
+        
+        // ⭐️ 가져온 공휴일 데이터를 Set으로 변환 (검색 속도 최적화)
+        const holidaySet = new Set((hRes.data || []).map(h => h.date));
 
         const merged: EmployeeAttendance[] = (pRes.data || []).map(prof => {
           const rec = aRes.data?.find(x => x.user_id === prof.id);
@@ -128,7 +136,7 @@ export default function AttendancePage() {
             position: prof.position || '직급미지정', 
             clock_in: formatTime(rec?.clock_in), 
             clock_out: formatTime(rec?.clock_out), 
-            status: getStatus(leaveMap, prof.id, rec, selectedDate), // ⭐️ 날짜 파라미터 추가
+            status: getStatus(leaveMap, holidaySet, prof.id, rec, selectedDate), // ⭐️ holidaySet 전달
             in_device: rec?.in_device, 
             out_device: rec?.out_device 
           };
@@ -150,16 +158,21 @@ export default function AttendancePage() {
     setIsExporting(true);
     
     try {
-      const [pRes, aRes, sRes, lRes] = await Promise.all([
+      // ⭐️ 엑셀 다운로드 시에도 기간 내의 공휴일 데이터를 가져오도록 수정
+      const [pRes, aRes, sRes, lRes, hRes] = await Promise.all([
         supabase.from('profiles').select('id, name, department, position').is('resigned_at', null).neq("department", "외주"),
         supabase.from('attendance').select('user_id, date, clock_in, clock_out, is_auto_checkout, in_device, out_device').gte('date', excelStartDate).lte('date', excelEndDate),
         supabase.from('sort_settings').select('*'),
-        supabase.from('leave_requests').select('*').lte('start_date', excelEndDate).gte('end_date', excelStartDate)
+        supabase.from('leave_requests').select('*').lte('start_date', excelEndDate).gte('end_date', excelStartDate),
+        supabase.from('public_holidays').select('date').gte('date', excelStartDate).lte('date', excelEndDate)
       ]);
 
       const { dSorts, eSorts } = parseSorts(sRes.data || []);
       const targetProfiles = (pRes.data || []).filter(p => selectedUserIds.includes(p.id));
       const excelData: any[] = [];
+      
+      // ⭐️ 엑셀용 공휴일 Set 생성
+      const holidaySet = new Set((hRes.data || []).map(h => h.date));
       
       for (let d = new Date(excelStartDate); d <= new Date(excelEndDate); d.setDate(d.getDate() + 1)) {
         const dateStr = toDateStr(d);
@@ -171,7 +184,7 @@ export default function AttendancePage() {
             _id: prof.id, _dept: prof.department || '소속 없음',
             '날짜': dateStr, '부서': prof.department || '소속 없음', '이름': prof.name, '직급': prof.position || '직급미지정',
             '출근시간': formatTime(rec?.clock_in), '퇴근시간': formatTime(rec?.clock_out),
-            '상태': getStatus(dailyLeaveMap, prof.id, rec, dateStr), // ⭐️ 엑셀 출력 시에도 동일한 로직 적용
+            '상태': getStatus(dailyLeaveMap, holidaySet, prof.id, rec, dateStr), // ⭐️ holidaySet 전달
             '출근기기': rec?.in_device || '-', '퇴근기기': rec?.out_device || '-'
           };
         }).sort((x, y) => (dSorts[x._dept] ?? 99) - (dSorts[y._dept] ?? 99) || (eSorts[x._id] ?? 99) - (eSorts[y._id] ?? 99))

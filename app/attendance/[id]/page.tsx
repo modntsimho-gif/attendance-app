@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { createClient } from "@/utils/supabase/client";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Calendar, User, Smartphone, Monitor } from "lucide-react";
+import { ArrowLeft, Calendar, User, Smartphone, Monitor, Clock } from "lucide-react";
 
 interface EmployeeProfile {
   name: string;
@@ -37,7 +37,7 @@ function DeviceBadge({ device }: { device?: string | null }) {
   );
 }
 
-// 🏷️ 상태 배지
+// 🏷️ 상태 배지 (공휴일 스타일 추가)
 const StatusBadge = ({ status }: { status: string }) => {
   const style = 
     status === '근무중' ? 'bg-green-100 text-green-700' : 
@@ -45,6 +45,7 @@ const StatusBadge = ({ status }: { status: string }) => {
     status === '퇴근완료' ? 'bg-gray-100 text-gray-600' : 
     status === '미출근' ? 'bg-red-50 text-red-500' : 
     status === '휴무' ? 'bg-gray-50 text-gray-400 border border-gray-200' : 
+    status === '공휴일' ? 'bg-rose-50 text-rose-600 border border-rose-100' :
     'bg-pink-50 text-pink-600 border border-pink-100'; 
     
   return <span className={`shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${style}`}>{status}</span>;
@@ -127,14 +128,19 @@ export default function EmployeeAttendanceDetail() {
         const startDate = `${selectedYear}-01-01`;
         const endDate = `${selectedYear}-12-31`;
 
-        const [ { data: profileData }, { data: attendanceData }, { data: leaveData } ] = await Promise.all([
+        // ⭐️ public_holidays 테이블 추가 조회
+        const [ { data: profileData }, { data: attendanceData }, { data: leaveData }, { data: holidayData } ] = await Promise.all([
           supabase.from('profiles').select('name, department, position').eq('id', userId).single(),
           supabase.from('attendance').select('date, clock_in, clock_out, is_auto_checkout, in_device, out_device').eq('user_id', userId).gte('date', startDate).lte('date', endDate),
-          supabase.from('leave_requests').select('*').eq('user_id', userId).lte('start_date', endDate).gte('end_date', startDate)
+          supabase.from('leave_requests').select('*').eq('user_id', userId).lte('start_date', endDate).gte('end_date', startDate),
+          supabase.from('public_holidays').select('date').gte('date', startDate).lte('date', endDate)
         ]);
 
         setProfile(profileData);
         const leaveMap = processUserLeaves(leaveData || []);
+        
+        // ⭐️ 공휴일 Set 생성
+        const holidaySet = new Set((holidayData || []).map(h => h.date));
 
         const today = new Date();
         const localTodayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
@@ -159,25 +165,28 @@ export default function EmployeeAttendanceDetail() {
         const formattedRecords: AttendanceRecord[] = allDates.map(dateStr => {
           const record = attendanceData?.find(a => a.date === dateStr);
           
-          const d = new Date(dateStr);
+          // ⭐️ 날짜 버그 방지를 위해 T00:00:00 추가
+          const d = new Date(`${dateStr}T00:00:00`);
           const dayOfWeek = dayNames[d.getDay()];
           const isWeekend = d.getDay() === 0 || d.getDay() === 6; 
+          const isHoliday = holidaySet.has(dateStr);
 
-          // ⭐️ 상태 판별 로직: 퇴근 시 휴가 상태 복구
           let status = '';
           const hasLeave = leaveMap.has(dateStr);
           const leaveType = hasLeave ? leaveMap.get(dateStr)! : '';
 
+          // ⭐️ 상태 판별 로직 (공휴일 반영)
           if (record?.clock_in) {
             if (!record.clock_out) {
-              status = '근무중'; // 출근만 한 상태
+              status = '근무중';
             } else {
-              // 퇴근까지 완료한 상태
               status = hasLeave ? leaveType : (record.is_auto_checkout ? '자동마감' : '퇴근완료');
             }
           } else {
-            // 출근 기록이 없는 상태
-            status = hasLeave ? leaveType : (isWeekend ? '휴무' : '미출근');
+            if (hasLeave) status = leaveType;
+            else if (isHoliday) status = '공휴일';
+            else if (isWeekend) status = '휴무';
+            else status = '미출근';
           }
 
           return {
@@ -206,53 +215,59 @@ export default function EmployeeAttendanceDetail() {
     <main className="min-h-screen bg-gray-50 p-6">
       <div className="w-full max-w-5xl mx-auto space-y-6">
         
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link href="/attendance" className="p-2 bg-white rounded-full shadow-sm hover:bg-gray-100 transition-colors">
-              <ArrowLeft className="w-5 h-5 text-gray-600" />
+        {/* ⭐️ 헤더 영역 (인디고 테마 적용) */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <Link href="/attendance" className="inline-flex items-center gap-2 text-gray-500 hover:text-gray-900 mb-2 transition-colors text-sm font-medium">
+              <ArrowLeft className="w-4 h-4" /> 목록으로 돌아가기
             </Link>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-                <User className="w-6 h-6 text-blue-600" />
-                {profile ? `${profile.name}님의 출퇴근 기록` : '출퇴근 기록 로딩중...'}
-              </h1>
-              <p className="text-gray-500 text-sm mt-1">
-                {profile ? `${profile.department} | ${profile.position}` : '직원 정보를 불러오고 있습니다.'}
-              </p>
-            </div>
+            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+              <User className="w-6 h-6 text-indigo-600" />
+              {profile ? `${profile.name}님의 출퇴근 기록` : '출퇴근 기록 로딩중...'}
+            </h1>
+            <p className="text-gray-500 text-sm mt-1">
+              {profile ? `${profile.department} | ${profile.position}` : '직원 정보를 불러오고 있습니다.'}
+            </p>
+          </div>
+
+          <div className="relative w-full sm:w-auto">
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value)}
+              className="w-full sm:w-auto appearance-none bg-white border border-gray-300 text-gray-700 py-2.5 pl-4 pr-10 rounded-xl font-bold text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent shadow-sm cursor-pointer"
+            >
+              {years.map(year => (
+                <option key={year} value={year}>{year}년 조회</option>
+              ))}
+            </select>
+            <Calendar className="absolute right-3 top-3 w-4 h-4 text-gray-400 pointer-events-none" />
           </div>
         </div>
 
-        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center gap-3">
-          <Calendar className="w-5 h-5 text-gray-400" />
-          <span className="text-sm font-bold text-gray-700">조회 연도</span>
-          <select 
-            value={selectedYear}
-            onChange={(e) => setSelectedYear(e.target.value)}
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none bg-white cursor-pointer"
-          >
-            {years.map(year => (
-              <option key={year} value={year}>{year}년</option>
-            ))}
-          </select>
-          <span className="text-sm text-gray-500 ml-auto">
-            총 <strong className="text-blue-600">{records.length}</strong>일의 기록이 있습니다.
+        {/* ⭐️ 요약 박스 */}
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+             <Clock className="w-5 h-5 text-indigo-500" />
+             <span className="font-bold text-gray-700">{selectedYear}년 누적 기록</span>
+          </div>
+          <span className="text-sm text-gray-500">
+            총 <strong className="text-indigo-600 text-lg">{records.length}</strong>일
           </span>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
           
-          {/* 🖥️ [PC 뷰] */}
+          {/* 🖥️ [PC 뷰] 투톤 테이블 적용 */}
           <div className="hidden md:block overflow-x-auto max-h-[70vh] overflow-y-auto custom-scrollbar">
-            <table className="w-full text-left border-collapse min-w-[800px]">
+            <table className="w-full text-sm text-left border-collapse min-w-[800px]">
               <thead className="sticky top-0 bg-gray-50 shadow-sm z-10">
-                <tr className="border-b border-gray-100 text-sm text-gray-500">
-                  <th className="p-4 font-semibold w-[110px]">날짜</th>
-                  <th className="p-4 font-semibold w-[120px]">출근 시간</th>
-                  <th className="p-4 font-semibold w-[120px]">출근 기기</th>
-                  <th className="p-4 font-semibold w-[120px]">퇴근 시간</th>
-                  <th className="p-4 font-semibold w-[120px]">퇴근 기기</th>
-                  <th className="p-4 font-semibold text-center w-[100px]">상태</th>
+                <tr className="border-b border-gray-200 text-xs text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-4 font-bold w-[140px]">날짜</th>
+                  <th className="px-4 py-4 font-bold text-center w-[100px]">상태</th>
+                  <th className="px-4 py-4 font-bold border-l border-gray-200 bg-blue-50/50 text-blue-800 w-[120px]">출근 시간</th>
+                  <th className="px-4 py-4 font-bold bg-blue-50/50 text-blue-800 w-[140px]">출근 기기</th>
+                  <th className="px-4 py-4 font-bold border-l border-gray-200 bg-red-50/50 text-red-800 w-[120px]">퇴근 시간</th>
+                  <th className="px-4 py-4 font-bold bg-red-50/50 text-red-800 w-[140px]">퇴근 기기</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -262,18 +277,18 @@ export default function EmployeeAttendanceDetail() {
                   <tr><td colSpan={6} className="p-10 text-center text-gray-400 bg-gray-50/50">해당 연도에 기록된 출퇴근 내역이 없습니다.</td></tr>
                 ) : (
                   records.map((record, index) => (
-                    <tr key={index} className="hover:bg-gray-50/50 transition-colors">
-                      <td className="p-4 font-medium text-gray-800">
+                    <tr key={index} className="hover:bg-indigo-50/60 transition-colors group">
+                      <td className="px-6 py-4 font-medium text-gray-900 group-hover:text-indigo-700 transition-colors">
                         {record.date}
-                        <span className={`ml-1 text-sm ${record.dayOfWeek === '토' ? 'text-blue-500' : record.dayOfWeek === '일' ? 'text-red-500' : 'text-gray-500'}`}>
+                        <span className={`ml-1 text-xs ${record.dayOfWeek === '토' ? 'text-blue-500' : record.dayOfWeek === '일' ? 'text-red-500' : 'text-gray-400'}`}>
                           ({record.dayOfWeek})
                         </span>
                       </td>
-                      <td className="p-4 text-sm font-medium text-blue-600">{record.clock_in}</td>
-                      <td className="p-4">{record.clock_in !== '-' ? <DeviceBadge device={record.in_device} /> : null}</td>
-                      <td className="p-4 text-sm font-medium text-red-500">{record.clock_out}</td>
-                      <td className="p-4">{record.clock_out !== '-' ? <DeviceBadge device={record.out_device} /> : null}</td>
-                      <td className="p-4 text-center"><StatusBadge status={record.status} /></td>
+                      <td className="px-4 py-4 text-center"><StatusBadge status={record.status} /></td>
+                      <td className="px-4 py-4 text-blue-600 font-bold border-l border-gray-100">{record.clock_in}</td>
+                      <td className="px-4 py-4">{record.clock_in !== '-' ? <DeviceBadge device={record.in_device} /> : null}</td>
+                      <td className="px-4 py-4 text-red-500 font-bold border-l border-gray-100">{record.clock_out}</td>
+                      <td className="px-4 py-4">{record.clock_out !== '-' ? <DeviceBadge device={record.out_device} /> : null}</td>
                     </tr>
                   ))
                 )}
@@ -281,7 +296,7 @@ export default function EmployeeAttendanceDetail() {
             </table>
           </div>
 
-          {/* 📱 [모바일 뷰] */}
+          {/* 📱 [모바일 뷰] 투톤 카드 적용 */}
           <div className="block md:hidden divide-y divide-gray-100 max-h-[70vh] overflow-y-auto custom-scrollbar">
             {isLoading ? (
               <div className="p-10 text-center text-gray-400 text-sm">데이터를 불러오는 중입니다...</div>
@@ -289,28 +304,28 @@ export default function EmployeeAttendanceDetail() {
               <div className="p-10 text-center text-gray-400 text-sm bg-gray-50/50">해당 연도에 기록된 출퇴근 내역이 없습니다.</div>
             ) : (
               records.map((record, index) => (
-                <div key={index} className="p-4 hover:bg-gray-50/50 transition-colors flex flex-col gap-3">
+                <div key={index} className="p-4 hover:bg-indigo-50/60 transition-colors flex flex-col gap-4 group">
                   <div className="flex items-center justify-between">
-                    <div className="font-bold text-gray-800 text-base flex items-center gap-2">
-                      <Calendar className="w-4 h-4 text-gray-400" />
+                    <div className="font-bold text-gray-900 text-base flex items-center gap-2 group-hover:text-indigo-700 transition-colors">
+                      <Calendar className="w-4 h-4 text-indigo-400" />
                       {record.date}
-                      <span className={`text-sm font-medium ${record.dayOfWeek === '토' ? 'text-blue-500' : record.dayOfWeek === '일' ? 'text-red-500' : 'text-gray-500'}`}>
+                      <span className={`text-sm font-medium ${record.dayOfWeek === '토' ? 'text-blue-500' : record.dayOfWeek === '일' ? 'text-red-500' : 'text-gray-400'}`}>
                         ({record.dayOfWeek})
                       </span>
                     </div>
                     <StatusBadge status={record.status} />
                   </div>
 
-                  <div className="bg-gray-50 rounded-lg p-3 grid grid-cols-2 gap-3">
-                    <div className="flex flex-col gap-1">
-                      <span className="text-xs text-gray-500 font-medium">출근</span>
-                      <div className="font-bold text-blue-600 text-sm">{record.clock_in}</div>
-                      {record.clock_in !== '-' && <div className="mt-0.5"><DeviceBadge device={record.in_device} /></div>}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-blue-50/30 rounded-lg p-3 border border-blue-100/50">
+                      <div className="text-xs text-gray-500 font-medium mb-1">출근</div>
+                      <div className="font-bold text-blue-600 text-base">{record.clock_in}</div>
+                      {record.clock_in !== '-' && <div className="mt-2"><DeviceBadge device={record.in_device} /></div>}
                     </div>
-                    <div className="flex flex-col gap-1 border-l border-gray-200 pl-3">
-                      <span className="text-xs text-gray-500 font-medium">퇴근</span>
-                      <div className="font-bold text-red-500 text-sm">{record.clock_out}</div>
-                      {record.clock_out !== '-' && <div className="mt-0.5"><DeviceBadge device={record.out_device} /></div>}
+                    <div className="bg-red-50/30 rounded-lg p-3 border border-red-100/50">
+                      <div className="text-xs text-gray-500 font-medium mb-1">퇴근</div>
+                      <div className="font-bold text-red-500 text-base">{record.clock_out}</div>
+                      {record.clock_out !== '-' && <div className="mt-2"><DeviceBadge device={record.out_device} /></div>}
                     </div>
                   </div>
                 </div>
