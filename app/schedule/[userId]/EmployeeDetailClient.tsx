@@ -49,8 +49,6 @@ const renderApprovers = (lines: any[]) => {
   );
 };
 
-const getReqLabel = (t: string) => t === 'cancel' ? '취소' : t === 'update' ? '변경' : '신청';
-
 const groupHistory = (data: any[], idF: string, pF: string): any[][] => {
   if (!data || data.length === 0) return [];
   const iMap = new Map<string, any>();
@@ -80,55 +78,72 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
   const [isOvertimeModalOpen, setIsOvertimeModalOpen] = useState(false);
 
-  
-  const { filteredLeaves, filteredOvertimes, currentYearStats } = useMemo(() => {
-    const fL = leaves.filter((l: any) => {
-      const matchDate = (!startDate || l.start_date >= startDate) && (!endDate || l.start_date <= endDate);
-      const matchType = !showAnnualLeaveOnly || ['연차', 'annual', '반차', '반반차'].includes(l.leave_type);
-      return matchDate && matchType;
-    });
-    const fO = overtimes.filter((o: any) => (!startDate || o.work_date >= startDate) && (!endDate || o.work_date <= endDate) && (!showRemainingOvertimeOnly || Number(o.recognized_hours) > Number(o.used_hours)));
-    
+  // ⭐️ 1. 먼저 모든 데이터를 그룹화하여 '최신 상태'를 확정합니다.
+  const allGroupedLeaves = useMemo(() => groupHistory(leaves, 'id', 'original_leave_request_id'), [leaves]);
+  const allGroupedOvertimes = useMemo(() => groupHistory(overtimes, 'id', 'original_overtime_request_id'), [overtimes]);
+
+  // ⭐️ 2. 확정된 최신 상태(group[0])를 기준으로 통계를 계산합니다.
+  const currentYearStats = useMemo(() => {
     const alloc = allocations.find((a: any) => a.year === currentYear);
     const total = alloc ? alloc.total_days : (profile.total_leave_days || 0);
 
-    const used = fL
-      .filter((l: any) => {
-        const isThisYear = l.start_date?.startsWith(currentYear.toString());
-        const isApproved = l.status === 'approved';
-        const isNotCancelled = l.request_type !== 'cancel';
-        const isAnnualType = ['연차', 'annual', '반차', '반반차'].includes(l.leave_type);
-        
-        return isThisYear && isApproved && isNotCancelled && isAnnualType;
-      })
-      .reduce((sum: number, l: any) => sum + Number(l.total_leave_days), 0);
+    const used = allGroupedLeaves.reduce((sum, group) => {
+      const latest = group[0];
+      const isThisYear = latest.start_date?.startsWith(currentYear.toString());
+      const isApproved = latest.status === 'approved';
+      const isNotCancelled = latest.request_type !== 'cancel' && latest.status !== 'cancelled';
+      const isAnnualType = ['연차', 'annual', '반차', '반반차'].includes(latest.leave_type);
+      
+      if (isThisYear && isApproved && isNotCancelled && isAnnualType) {
+        return sum + Number(latest.total_leave_days);
+      }
+      return sum;
+    }, 0);
 
-    return { filteredLeaves: fL, filteredOvertimes: fO, currentYearStats: { total, used, remaining: total - used } };
-  }, [startDate, endDate, showRemainingOvertimeOnly, showAnnualLeaveOnly, leaves, overtimes, allocations, profile, currentYear]);
+    return { total, used, remaining: total - used };
+  }, [allGroupedLeaves, allocations, profile, currentYear]);
 
   const extraStats = useMemo(() => {
-    const totalExtra = overtimes
-      .filter((o: any) => o.status === 'approved' && o.request_type !== 'cancel')
-      .reduce((sum: number, o: any) => sum + Number(o.recognized_days || (o.recognized_hours ? o.recognized_hours / 8 : 0)), 0);
-  
-    const usedExtra = overtimes
-      .filter((o: any) => o.status === 'approved' && o.request_type !== 'cancel')
-      .reduce((sum: number, o: any) => sum + Number(o.used_hours ? o.used_hours / 8 : 0), 0);
-  
+    let totalExtra = 0;
+    let usedExtra = 0;
+
+    allGroupedOvertimes.forEach(group => {
+      const latest = group[0];
+      if (latest.status === 'approved' && latest.request_type !== 'cancel' && latest.status !== 'cancelled') {
+        totalExtra += Number(latest.recognized_days || (latest.recognized_hours ? latest.recognized_hours / 8 : 0));
+        usedExtra += Number(latest.used_hours ? latest.used_hours / 8 : 0);
+      }
+    });
+
     return { total: totalExtra, used: usedExtra, remaining: totalExtra - usedExtra };
-  }, [overtimes]); 
-  
+  }, [allGroupedOvertimes]); 
+
+  // ⭐️ 3. 필터링 로직: 그룹화된 결과의 최신 데이터(latest)를 기준으로 화면에 보여줄지 결정합니다.
   const groupedLeaves = useMemo(() => {
-    const groups = groupHistory(filteredLeaves, 'id', 'original_leave_request_id');
-    if (!excludeCancelled) return groups;
-    return groups.filter(g => g[0].request_type !== 'cancel' && g[0].status !== 'cancelled');
-  }, [filteredLeaves, excludeCancelled]);
+    return allGroupedLeaves.filter(group => {
+      const latest = group[0];
+      const matchDate = (!startDate || latest.start_date >= startDate) && (!endDate || latest.start_date <= endDate);
+      const matchType = !showAnnualLeaveOnly || ['연차', 'annual', '반차', '반반차'].includes(latest.leave_type);
+      const matchCancel = !excludeCancelled || (latest.request_type !== 'cancel' && latest.status !== 'cancelled');
+      return matchDate && matchType && matchCancel;
+    });
+  }, [allGroupedLeaves, startDate, endDate, showAnnualLeaveOnly, excludeCancelled]);
 
   const groupedOvertimes = useMemo(() => {
-    const groups = groupHistory(filteredOvertimes, 'id', 'original_overtime_request_id');
-    if (!excludeCancelled) return groups;
-    return groups.filter(g => g[0].request_type !== 'cancel' && g[0].status !== 'cancelled');
-  }, [filteredOvertimes, excludeCancelled]);
+    return allGroupedOvertimes.filter(group => {
+      const latest = group[0];
+      const matchDate = (!startDate || latest.work_date >= startDate) && (!endDate || latest.work_date <= endDate);
+      
+      // 취소된 건은 잔여 시간이 없는 것으로 간주
+      const isCancelled = latest.request_type === 'cancel' || latest.status === 'cancelled';
+      const hasRemaining = Number(latest.recognized_hours) > Number(latest.used_hours) && !isCancelled;
+      const matchRemaining = !showRemainingOvertimeOnly || hasRemaining;
+      
+      const matchCancel = !excludeCancelled || !isCancelled;
+      
+      return matchDate && matchRemaining && matchCancel;
+    });
+  }, [allGroupedOvertimes, startDate, endDate, showRemainingOvertimeOnly, excludeCancelled]);
 
   return (
     <>
@@ -204,7 +219,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                       <th className="px-4 py-3 text-right w-[100px]">차감일수</th>
                       <th className="px-4 py-3 w-[120px]">결재자</th>
                       <th className="px-4 py-3">사유</th>
-                      {/* ⭐️ 원천 초과근무 열 너비 확장 (200px -> 280px) */}
                       <th className="px-4 py-3 w-[280px]">원천 초과근무</th>
                     </tr>
                   </thead>
@@ -222,7 +236,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                             <td className={`px-4 py-3.5 text-right font-bold ${latest.request_type === 'cancel' ? 'text-gray-300 line-through' : 'text-gray-900'}`}>-{Number(latest.total_leave_days).toFixed(2)}일</td>
                             <td className="px-4 py-3.5">{renderApprovers(latest.approval_lines)}</td>
                             <td className="px-4 py-3.5 text-gray-600 truncate">{latest.reason || '-'}</td>
-                            {/* ⭐️ 줄바꿈 허용 (whitespace-normal, break-keep) */}
                             <td className="px-4 py-3.5 whitespace-normal">
                               {sourceOts.length > 0 ? (
                                 <div className="flex flex-col gap-1.5 items-start">
@@ -330,7 +343,6 @@ export default function EmployeeDetailClient({ profile, leaves, overtimes, alloc
                         <div className="flex-1 overflow-hidden">
                           {sourceOts.length > 0 && (
                             <div className="flex flex-col gap-1.5 items-start">
-                              {/* ⭐️ 모바일에서도 줄바꿈 허용 */}
                               {sourceOts.map((ot: any, idx: number) => (
                                 <span key={idx} className="inline-flex items-start gap-1.5 bg-orange-50 border border-orange-200 text-orange-700 px-2 py-1.5 rounded text-[10px] font-bold w-full" onClick={(e) => { e.stopPropagation(); setSelectedOvertime(ot); setIsOvertimeModalOpen(true); }}>
                                   <Link2 className="w-3 h-3 shrink-0 mt-0.5" />
