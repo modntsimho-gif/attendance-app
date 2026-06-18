@@ -201,7 +201,12 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
     if (isViewMode || isSubmittingRef.current) return;
     if (approvers.length === 0) return alert("최소 1명 이상의 결재자를 지정해야 합니다.");
     if ((requestType === 'update' || requestType === 'cancel') && !selectedOriginalLeaveId) return alert("대상 연차 내역을 선택해주세요.");
-
+  
+    // 👇 새로 추가된 시간 필수 검증 로직
+    if (!isFormDisabled && (!startTime || !endTime)) {
+      return alert("사용 시작 시간과 종료 시간을 모두 선택해주세요.");
+    }
+  
     if (selectedLeaveType.startsWith("대체휴무") && requestType !== 'cancel') {
       if (!selectedOvertimeIds.length) return alert("대체휴무 정보가 올바르지 않습니다.");
       const requiredHours = (calcResult.totalDeduction || leaveFactor) * 8;
@@ -235,8 +240,15 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
   const inputBase = "w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 disabled:bg-gray-100 disabled:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500";
   
   const renderTimeSelect = (name: string, value: string, setter: (v: string) => void) => (
-    <select name={name} disabled={isFormDisabled} value={value} onChange={(e) => setter(e.target.value)} className={`flex-1 bg-white ${inputBase}`}>
-      <option value="">선택 안함</option>
+    <select 
+      name={name} 
+      disabled={isFormDisabled} 
+      required={!isFormDisabled} // 폼이 활성화된 상태일 때만 필수로 지정
+      value={value} 
+      onChange={(e) => setter(e.target.value)} 
+      className={`flex-1 bg-white ${inputBase}`}
+    >
+      <option value="" disabled hidden>시간 선택</option> {/* 기본 안내 문구로 변경 */}
       {TIME_OPTIONS.map(time => <option key={`${name}-${time}`} value={time}>{time}</option>)}
     </select>
   );
@@ -474,8 +486,10 @@ export default function LeaveApplicationModal({ isOpen, onClose, onSuccess, init
                   </div>
                 </div>
                 <div>
-                  <label className={labelBase}>사용 시간 (선택)</label>
-                  <div className="flex items-center gap-2">
+                <label className={labelBase}>
+                  사용 시간 <span className="text-red-500 ml-1">*</span>
+                </label>
+                <div className="flex items-center gap-2">
                     {renderTimeSelect("startTime", startTime, setStartTime)}
                     <span className="text-gray-400">~</span>
                     {renderTimeSelect("endTime", endTime, setEndTime)}
